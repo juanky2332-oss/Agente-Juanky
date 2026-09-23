@@ -77,8 +77,9 @@ const ETIQ_DETALLE: Record<string, string> = {
 };
 
 export default function FormGasto({
-  inicial, fila, esperado, alGuardar, conSubida = false,
+  inicial, fila, esperado, alGuardar, conSubida = false, borrador,
 }: {
+  borrador?: string; // viene de Telegram: al guardar se confirma ese borrador
   inicial?: Ficha;
   fila?: number;
   esperado?: { total: string; proveedor: string };
@@ -136,7 +137,10 @@ export default function FormGasto({
         ...f,
         consumo: f.consumo === "" ? null : f.consumo,
       };
-      if (fila) {
+      if (borrador) {
+        const r = await llamar<{ borrador: { fila: string } }>("/api/borradores", "POST", { id: borrador, accion: "confirmar", cambios: cuerpo, forzar });
+        avisar(`Confirmada y guardada como #G${r.borrador.fila} · avisado en Telegram`);
+      } else if (fila) {
         await llamar("/api/finanzas", "PATCH", { fila, esperado, cambios: cuerpo });
         avisar("Cambios guardados en GestorIA");
       } else {
@@ -190,7 +194,7 @@ export default function FormGasto({
           )}
         </div>
       )}
-      {leida && !fila && (
+      {(leida || borrador) && !fila && (
         <div className="rounded-xl border border-acento/50 bg-acento-suave p-3 text-sm">
           <b>👀 Revisa lo que he leído antes de guardar.</b> Cambia lo que no esté bien (importe, fecha, proveedor, categoría…) o añade lo que falte.
           {confianza !== null && <span className="ml-1 text-xs text-txt-2">Seguridad de la lectura: {Math.round(confianza * 100)} %.</span>}
@@ -301,7 +305,7 @@ export default function FormGasto({
         ) : (
           <span className="text-xs text-txt-3">Fila #G{fila} de GestorIA · lo verás igual desde Telegram</span>
         )}
-        <Boton type="submit" tipo="primario" disabled={guardando || leyendo}>{guardando ? "Guardando…" : fila ? "Guardar cambios" : leida ? "✓ Confirmar y guardar" : "Guardar gasto"}</Boton>
+        <Boton type="submit" tipo="primario" disabled={guardando || leyendo}>{guardando ? "Guardando…" : fila ? "Guardar cambios" : leida || borrador ? "✓ Confirmar y guardar" : "Guardar gasto"}</Boton>
       </div>
     </form>
   );

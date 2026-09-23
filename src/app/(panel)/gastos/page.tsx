@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApi, Tarjeta, Kpi, Boton, Modal, Cargando, FalloCarga, Chip, TarjetaHallazgo, Titulo, inputCls, llamar, avisar, Vacio } from "@/components/ui";
 import { BarrasMes, Ranking, LineaMes, Donut, useColores, colorSerie } from "@/components/graficas";
 import PanelCategoria from "@/components/gastos/PanelCategoria";
@@ -81,6 +81,15 @@ export default function Gastos() {
   const [pagina, setPagina] = useState(1);
   const [sinDudosos, setSinDudosos] = useState(false);
   const c = useColores();
+  // Facturas que llegaron por Telegram y esperan confirmación
+  const bor = useApi<{ borradores: { id: string; fecha: string; ficha: Record<string, unknown> & { proveedor: string; total: number }; duplicado: { fila: number } | null; enlace: string }[] }>("/api/borradores");
+  const [revisando, setRevisando] = useState<string | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get("borrador");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir el borrador que viene en el enlace de Telegram
+    if (id) setRevisando(id.toUpperCase());
+  }, []);
+  const borRev = (bor.datos?.borradores || []).find((b) => b.id === revisando);
 
   // Filas marcadas por el análisis como importe raro o que no cuadra
   const dudosos = useMemo(
@@ -262,6 +271,18 @@ export default function Gastos() {
         <Kpi etiqueta="Gastos fijos al mes" valor={eur0(fijoMes)} sub={`${recs.length} pagos que se repiten`} />
         <Kpi etiqueta="Proyección anual" valor={eur0(mediaMes * 12)} sub="a este ritmo" />
       </div>
+
+      {(bor.datos?.borradores.length || 0) > 0 && (
+        <div className="mb-4 rounded-xl border border-acento/50 bg-acento-suave p-3 text-sm">
+          <b>🧾 {bor.datos!.borradores.length} {bor.datos!.borradores.length === 1 ? "factura espera" : "facturas esperan"} tu confirmación</b> (llegaron por Telegram):
+          <div className="mt-2 flex flex-wrap gap-2">
+            {bor.datos!.borradores.map((b) => (
+              <Boton key={b.id} pequeno onClick={() => setRevisando(b.id)}>{b.id} · {String(b.ficha?.proveedor || "?")} · {eur(Number(b.ficha?.total || 0))}{b.duplicado ? " ⚠️" : ""}</Boton>
+            ))}
+          </div>
+        </div>
+      )}
+      {revisando && bor.datos && !borRev && <div className="mb-4 rounded-xl border border-borde bg-card p-3 text-sm">El borrador {revisando} ya no está pendiente (se confirmó o descartó). <Boton pequeno tipo="fantasma" onClick={() => setRevisando(null)}>Cerrar</Boton></div>}
 
       {(datos.faltan.length > 0 || datos.generados.gastos > 0) && (
         <div className="mb-4 grid gap-2">
@@ -508,6 +529,26 @@ export default function Gastos() {
 
       <Modal abierto={!!nuevo} cerrar={() => setNuevo("")} titulo={nuevo === "subir" ? "Subir factura" : "Añadir gasto"}>
         {nuevo && <FormGasto conSubida={nuevo === "subir"} alGuardar={() => (setNuevo(""), recargar())} />}
+      </Modal>
+      <Modal abierto={!!borRev} cerrar={() => setRevisando(null)} titulo={borRev ? `Revisar factura ${borRev.id}` : ""}>
+        {borRev && (
+          <>
+            {borRev.duplicado && <p className="mb-3 rounded-lg bg-card-2 p-2 text-xs text-aviso-txt">⚠️ Parece que ya la tienes como #G{borRev.duplicado.fila}. Si guardas, te preguntaré antes de duplicarla.</p>}
+            {borRev.enlace && <a className="mb-3 inline-block text-xs text-acento underline" href={borRev.enlace} target="_blank" rel="noreferrer">📎 Ver el documento</a>}
+            <FormGasto
+              key={borRev.id}
+              borrador={borRev.id}
+              inicial={{ ...{ tipo: "gasto", fecha: "", proveedor: "", concepto: "", base: "", iva: "", total: "", doc: "", enlace: borRev.enlace, categoria: "", ambito: "", subcategoria: "", periodoDesde: "", periodoHasta: "", consumo: "", unidad: "", recurrencia: "", pago: "", notas: "", detalle: {} }, ...(borRev.ficha as object) } as never}
+              alGuardar={() => (setRevisando(null), history.replaceState(null, "", "/gastos"), bor.recargar(), recargar())}
+            />
+            <div className="mt-3 border-t border-borde pt-3 text-right">
+              <Boton tipo="peligro" pequeno onClick={async () => {
+                if (!confirm("¿Descartar esta factura? No se apunta nada.")) return;
+                try { await llamar("/api/borradores", "POST", { id: borRev.id, accion: "descartar" }); avisar("Descartada"); setRevisando(null); bor.recargar(); } catch (e) { avisar((e as Error).message, "error"); }
+              }}>🗑 Descartar</Boton>
+            </div>
+          </>
+        )}
       </Modal>
       <Modal abierto={!!editando} cerrar={() => setEditando(null)} titulo={editando ? `Editar #G${editando.fila}` : ""}>
         {editando && (
