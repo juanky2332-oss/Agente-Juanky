@@ -8,7 +8,8 @@ import { eur, eur0, pct, hoyISO, mesClave, isoAEs } from "@/lib/parse";
 import type { Nota } from "@/lib/datos";
 
 interface Fin { movimientos: Movimiento[]; hallazgos: Hallazgo[]; recurrentes: { mensualEquivalente: number }[] }
-interface Ing { taller: { resumen: { pendiente: number; cobrado: number; miParte: number; nPendientes: number; nSinPrecio: number } }; flownexion: { resumen: { pendiente: number; nPendientes: number; ganoApps: number } } }
+interface Res { facturado: number; cobrado: number; pendiente: number; nPendientes: number; nSinPrecio: number }
+interface Ing { resumen: { Todo: Res; Taller: Res; Flownexion: Res } }
 interface Ev { id: string; titulo: string; inicio: string; fin: string; todoElDia: boolean }
 
 function cuando(e: Ev) {
@@ -38,8 +39,8 @@ export default function Inicio() {
   const serie = porMes(g, meses).map((r) => ({ mes: r.mes, Gasto: r.total }));
   const fijo = (fin.datos?.recurrentes || []).reduce((s, r) => s + r.mensualEquivalente, 0);
 
-  const pendTaller = ing.datos?.taller.resumen.pendiente || 0;
-  const pendFlow = ing.datos?.flownexion.resumen.pendiente || 0;
+  const pendTaller = ing.datos?.resumen.Taller.pendiente || 0;
+  const pendFlow = ing.datos?.resumen.Flownexion.pendiente || 0;
 
   const abiertas = (tar.datos?.notas || []).filter((n) => n.abierta && ["tarea", "recordatorio", "recurrente", "pendiente"].includes(n.tipo.toLowerCase()));
   const [ahora] = useState(() => Date.now());
@@ -61,7 +62,7 @@ export default function Inicio() {
           tono={gAntHastaHoy > 0 ? (gMes > gAntHastaHoy * 1.05 ? "alerta" : gMes < gAntHastaHoy * 0.95 ? "bien" : undefined) : undefined}
         />
         <Kpi etiqueta="Gastos fijos al mes" valor={fin.datos ? eur0(fijo) : "…"} sub="suministros y suscripciones" />
-        <Kpi etiqueta="Te deben (taller + Flownexion)" valor={ing.datos ? eur0(pendTaller + pendFlow) : "…"} sub={ing.datos ? `${ing.datos.taller.resumen.nPendientes + ing.datos.flownexion.resumen.nPendientes} líneas por cobrar` : ""} tono={pendTaller + pendFlow > 0 ? "aviso" : undefined} />
+        <Kpi etiqueta="Te deben (taller + Flownexion)" valor={ing.datos ? eur0(pendTaller + pendFlow) : "…"} sub={ing.datos ? `${ing.datos.resumen.Todo.nPendientes} líneas por cobrar` : ""} tono={pendTaller + pendFlow > 0 ? "aviso" : undefined} />
         <Kpi etiqueta="Tareas" valor={tar.datos ? abiertas.length : "…"} sub={tar.datos ? `${vencidas.length} vencidas · ${paraHoy.length} para hoy` : ""} tono={vencidas.length ? "alerta" : undefined} />
       </div>
 
@@ -106,9 +107,13 @@ export default function Inicio() {
       </div>
 
       {ing.datos && (
-        <Tarjeta titulo="Cobros del taller" extra={<Link href="/ingresos" className="text-xs text-acento">Ingresos →</Link>} sub={`Tu parte: ${eur(ing.datos.taller.resumen.miParte)} · ${ing.datos.taller.resumen.nSinPrecio} trabajos aún sin precio`}>
-          <BarraPartes partes={[{ nombre: "Cobrado", valor: ing.datos.taller.resumen.cobrado, color: c.s3 }, { nombre: "Pendiente", valor: pendTaller, color: c.s4 }]} />
-        </Tarjeta>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {(["Taller", "Flownexion"] as const).map((n) => (
+            <Tarjeta key={n} titulo={n === "Taller" ? "🔧 Cobros del taller" : "💻 Cobros de Flownexion"} extra={<Link href="/ingresos" className="text-xs text-acento">Ingresos →</Link>} sub={`Tuyo: ${eur(ing.datos!.resumen[n].facturado)}${ing.datos!.resumen[n].nSinPrecio ? ` · ${ing.datos!.resumen[n].nSinPrecio} sin precio` : ""}`}>
+              <BarraPartes partes={[{ nombre: "Cobrado", valor: ing.datos!.resumen[n].cobrado, color: c.bien }, { nombre: "Pendiente", valor: ing.datos!.resumen[n].pendiente, color: c.s5 }]} />
+            </Tarjeta>
+          ))}
+        </div>
       )}
       <p className="mt-6 text-center text-[11px] text-txt-3">Todo sale de tus hojas de Google en tiempo real · última carga {new Date().toLocaleTimeString("es-ES")} · {isoAEs(hoy)}</p>
     </div>

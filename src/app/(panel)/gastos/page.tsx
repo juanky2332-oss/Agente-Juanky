@@ -1,7 +1,10 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useApi, Tarjeta, Kpi, Boton, Modal, Cargando, FalloCarga, Chip, TarjetaHallazgo, Titulo, inputCls, llamar, avisar, Vacio } from "@/components/ui";
-import { BarrasMes, Ranking, LineaMes, useColores, colorSerie } from "@/components/graficas";
+import { BarrasMes, Ranking, LineaMes, Donut, useColores, colorSerie } from "@/components/graficas";
+import PanelCategoria from "@/components/gastos/PanelCategoria";
+import Programados, { type ProgramadoApi } from "@/components/gastos/Programados";
+import FiltrosCorreo, { type FiltroApi } from "@/components/gastos/FiltrosCorreo";
 import FormGasto, { desdeMovimiento } from "@/components/gastos/FormGasto";
 import Referencias from "@/components/gastos/Referencias";
 import AnalisisIA from "@/components/gastos/AnalisisIA";
@@ -22,7 +25,17 @@ interface Datos {
   hallazgos: Hallazgo[];
   recurrentes: RecurrenteApi[];
   facturasCorreo: Record<string, string>[];
+  programados: ProgramadoApi[];
+  filtros: FiltroApi[];
+  faltan: { id: string; nombre: string; fecha: string }[];
+  generados: { gastos: number; ingresos: number };
 }
+
+const ICONO: Record<string, string> = {
+  Luz: "💡", Gas: "🔥", Agua: "💧", "Suscripciones y software": "🧩", Vivienda: "🏠", Deporte: "🏋️", "Telefonía e internet": "📶",
+  "Delivery y restaurantes": "🍔", Supermercado: "🛒", Seguros: "🛡", "Vehículo y transporte": "🚗", "Hogar y compras": "🛍", Salud: "⚕️",
+  Bebé: "🍼", "Ocio y viajes": "✈️", "Impuestos y tasas": "🏛", "Material y herramientas": "🔧", Formación: "📚", "Servicios profesionales": "💼", Otros: "•",
+};
 
 const PERIODOS = [
   { k: "mes", t: "Este mes" },
@@ -131,6 +144,8 @@ export default function Gastos() {
   const hallazgos = (datos?.hallazgos || []).filter((h) => !categoria || !h.categoria || h.categoria === categoria);
   const nombreProv = (k: string) => gastos.find((m) => m.provKey === k)?.proveedor || k;
   const pendientesCorreo = (datos?.facturasCorreo || []).filter((f) => f.ESTADO === "revisar");
+  // Pestañas: solo categorías con algún gasto, en el orden fijo de colores
+  const catsConGasto = CATEGORIAS.filter((k) => k !== "Ingresos" && gastos.some((m) => m.categoria === k));
 
   // Evolución factura a factura de un proveedor (precio y consumo)
   const provParaSerie = provSerie || recs[0]?.provKey || "";
@@ -213,10 +228,6 @@ export default function Gastos() {
               <Chip key={a} activo={ambito === a} onClick={() => setAmbito(ambito === a ? "" : a)}>{a}</Chip>
             ))}
           </div>
-          <select aria-label="Categoría" className={inputCls + " !w-auto !py-1 text-xs"} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-            <option value="">Todas las categorías</option>
-            {CATEGORIAS.filter((c) => c !== "Ingresos").map((c) => <option key={c}>{c}</option>)}
-          </select>
           <select aria-label="Proveedor" className={inputCls + " !w-auto !py-1 text-xs max-w-48"} value={proveedor} onChange={(e) => setProveedor(e.target.value)}>
             <option value="">Todos los proveedores</option>
             {agrupar(gastos, (m) => m.provKey).map((g) => <option key={g.clave} value={g.clave}>{nombreProv(g.clave)}</option>)}
@@ -228,6 +239,14 @@ export default function Gastos() {
             </Chip>
           )}
           {filtroActivo && <Boton pequeno tipo="fantasma" onClick={() => (setAmbito(""), setCategoria(""), setProveedor(""), setTexto(""))}>Quitar filtros</Boton>}
+        </div>
+        <div className="mt-2 flex gap-1.5 overflow-x-auto scroll-fino pb-0.5" role="tablist" aria-label="Categorías">
+          <Chip activo={!categoria} onClick={() => setCategoria("")}>Todas</Chip>
+          {catsConGasto.map((k) => (
+            <Chip key={k} activo={categoria === k} onClick={() => (setCategoria(categoria === k ? "" : k), setPagina(1))}>
+              <span className="mr-1" aria-hidden>{ICONO[k] || "•"}</span>{k}
+            </Chip>
+          ))}
         </div>
       </div>
 
@@ -244,60 +263,89 @@ export default function Gastos() {
         <Kpi etiqueta="Proyección anual" valor={eur0(mediaMes * 12)} sub="a este ritmo" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3 mb-4">
-        <Tarjeta className="lg:col-span-2" titulo="Evolución mensual por categoría" sub="Pasa el ratón por una barra para ver el desglose. La línea discontinua es tu media.">
-          {total > 0 ? (
-            <BarrasMes datos={serieGrafica} series={[...CATEGORIAS_COLOR.map((c, i) => ({ clave: c as string, color: i as number | null })), { clave: "Otros", color: null }]} media={mediaMes} />
+      {(datos.faltan.length > 0 || datos.generados.gastos > 0) && (
+        <div className="mb-4 grid gap-2">
+          {datos.faltan.map((f) => (
+            <div key={f.id} className="rounded-xl border border-aviso/50 bg-card px-4 py-2.5 text-sm">
+              ⏳ <b>{f.nombre}</b>: tocaba hacia el {isoAEs(f.fecha)} y no ha llegado la factura. Si llegó por otro sitio, súbela; si la tienes en el correo, usa «Traer del correo».
+            </div>
+          ))}
+          {datos.generados.gastos > 0 && <div className="rounded-xl border border-borde bg-card px-4 py-2.5 text-sm">🔁 Acabo de apuntar {datos.generados.gastos} gastos automáticos (comunidad, gimnasio, agua…). Te lo he dicho también por Telegram.</div>}
+        </div>
+      )}
+
+      {categoria ? (
+        <div className="mb-4">
+          <PanelCategoria
+            categoria={categoria}
+            todos={gastos.filter((m) => (!ambito || m.ambito === ambito) && (!proveedor || m.provKey === proveedor))}
+            desde={desde}
+            hasta={hasta}
+            meses={meses}
+            referencias={datos.referencias}
+            programados={datos.programados.map((p) => ({ ...p, proxima: p.proxima || null }))}
+            abrir={setEditando}
+          />
+        </div>
+      ) : (
+        <>
+        <div className="grid gap-4 lg:grid-cols-3 mb-4">
+          <Tarjeta className="lg:col-span-2" titulo="Evolución mensual por categoría" sub="Pasa el ratón por una barra para ver el desglose. La línea discontinua es tu media.">
+            {total > 0 ? (
+              <BarrasMes datos={serieGrafica} series={[...CATEGORIAS_COLOR.map((c, i) => ({ clave: c as string, color: i as number | null })), { clave: "Otros", color: null }]} media={mediaMes} />
+            ) : (
+              <Vacio>No hay gastos con estos filtros.</Vacio>
+            )}
+          </Tarjeta>
+          <Tarjeta titulo="¿En qué se va?" sub="Toca una porción para ver su análisis">
+            <Donut
+              alto={200}
+              centro={{ valor: eur0(total), etiqueta: "en el periodo" }}
+              items={porCat.map((g) => ({ nombre: g.clave, valor: g.total, clave: g.clave, color: colorSerie(c, idxColor(g.clave)) }))}
+              onClick={(k) => setCategoria(k)}
+            />
+          </Tarjeta>
+        </div>
+
+        <Tarjeta
+          className="mb-4"
+          titulo="Análisis: puntos débiles, lo que va bien y dónde pagas de más"
+          sub="Calculado sobre todos tus gastos (no solo el periodo). Las comparaciones de precio usan tu pestaña «Referencias precios»."
+          extra={<AnalisisIA obtenerResumen={resumenIA} />}
+        >
+          {pendientesCorreo.length > 0 && (
+            <div className="mb-3 rounded-lg bg-card-2 px-3 py-2 text-xs text-txt-2">
+              📥 {pendientesCorreo.length} facturas del correo marcadas «revisar» (sin importe claro): {pendientesCorreo.map((f) => `${f.PROVEEDOR} ${f.TOTAL ? f.TOTAL + " €" : ""}`).join(" · ")}
+            </div>
+          )}
+          {hallazgos.length ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {hallazgos.map((h, i) => (
+                <TarjetaHallazgo
+                  key={i}
+                  nivel={h.nivel}
+                  titulo={h.titulo}
+                  detalle={h.detalle}
+                  pie={
+                    <div className="flex flex-wrap items-center gap-2">
+                      {h.impactoAnual ? <span className="text-xs tabular text-txt-3">≈ {eur0(h.impactoAnual)}/año</span> : null}
+                      {h.filas?.slice(0, 2).map((f) => {
+                        const m = datos.movimientos.find((x) => x.fila === f);
+                        return m ? <Boton key={f} pequeno tipo="fantasma" onClick={() => setEditando(m)}>Abrir #G{f}</Boton> : null;
+                      })}
+                    </div>
+                  }
+                />
+              ))}
+            </div>
           ) : (
-            <Vacio>No hay gastos con estos filtros.</Vacio>
+            <Vacio>Nada que señalar todavía. Cuantas más facturas metas, más fino el análisis.</Vacio>
           )}
         </Tarjeta>
-        <Tarjeta titulo="Por categoría" sub="Toca una para filtrar">
-          <Ranking
-            items={porCat.map((g) => ({
-              nombre: g.clave, valor: g.total, clave: g.clave, color: colorSerie(c, idxColor(g.clave)),
-              sub: `${g.n} mov. · ${total ? Math.round((g.total / total) * 100) : 0} % del total`,
-            }))}
-            onClick={(k) => setCategoria(categoria === k ? "" : k)}
-          />
-        </Tarjeta>
-      </div>
 
-      <Tarjeta
-        className="mb-4"
-        titulo="Análisis: puntos débiles, lo que va bien y dónde pagas de más"
-        sub="Calculado sobre todos tus gastos (no solo el periodo). Las comparaciones de precio usan tu pestaña «Referencias precios»."
-        extra={<AnalisisIA obtenerResumen={resumenIA} />}
-      >
-        {pendientesCorreo.length > 0 && (
-          <div className="mb-3 rounded-lg bg-card-2 px-3 py-2 text-xs text-txt-2">
-            📥 {pendientesCorreo.length} facturas del correo marcadas «revisar» (sin importe claro): {pendientesCorreo.map((f) => `${f.PROVEEDOR} ${f.TOTAL ? f.TOTAL + " €" : ""}`).join(" · ")}
-          </div>
-        )}
-        {hallazgos.length ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {hallazgos.map((h, i) => (
-              <TarjetaHallazgo
-                key={i}
-                nivel={h.nivel}
-                titulo={h.titulo}
-                detalle={h.detalle}
-                pie={
-                  <div className="flex flex-wrap items-center gap-2">
-                    {h.impactoAnual ? <span className="text-xs tabular text-txt-3">≈ {eur0(h.impactoAnual)}/año</span> : null}
-                    {h.filas?.slice(0, 2).map((f) => {
-                      const m = datos.movimientos.find((x) => x.fila === f);
-                      return m ? <Boton key={f} pequeno tipo="fantasma" onClick={() => setEditando(m)}>Abrir #G{f}</Boton> : null;
-                    })}
-                  </div>
-                }
-              />
-            ))}
-          </div>
-        ) : (
-          <Vacio>Nada que señalar todavía. Cuantas más facturas metas, más fino el análisis.</Vacio>
-        )}
-      </Tarjeta>
+
+        </>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2 mb-4">
         <Tarjeta titulo="Pagos que se repiten" sub="Detectados por fechas e importes, o marcados como recurrentes">
@@ -386,6 +434,15 @@ export default function Gastos() {
               </div>
             ))}
           </dl>
+        </Tarjeta>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2 mb-4">
+        <Tarjeta titulo="🔁 Gastos automáticos" sub="Lo que se paga solo (comunidad, gimnasio, agua en papel…) se apunta en su fecha. Lo que llega por correo solo avisa si falta.">
+          <Programados lista={datos.programados} alCambiar={recargar} />
+        </Tarjeta>
+        <Tarjeta titulo="📧 Proveedores que leo del correo" sub="Solo estos entran solos desde juanky2332@gmail.com cada mañana, con su PDF en Drive. El resto, a mano.">
+          <FiltrosCorreo filtros={datos.filtros} alCambiar={recargar} />
         </Tarjeta>
       </div>
 

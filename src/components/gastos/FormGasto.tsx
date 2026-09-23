@@ -93,6 +93,8 @@ export default function FormGasto({
   const [avisarTg, setAvisarTg] = useState(true);
   const [catTocada, setCatTocada] = useState(!!inicial?.categoria);
   const [arrastre, setArrastre] = useState(false);
+  const [leida, setLeida] = useState(false); // se ha leído una factura: hay que revisar y confirmar
+  const [confianza, setConfianza] = useState<number | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const set = (k: keyof Ficha, v: unknown) => setF((x) => ({ ...x, [k]: v }));
 
@@ -115,8 +117,10 @@ export default function FormGasto({
       const r = await llamar<{ ficha: Ficha; avisos: string[]; confianza: number | null }>("/api/finanzas/extraer", "POST", { base64: a.base64, mime: a.mime });
       setF((x) => ({ ...x, ...r.ficha, ambito: x.ambito || ambitoPorDefecto(r.ficha.categoria as Categoria), notas: x.notas }));
       setCatTocada(true);
+      setLeida(true);
+      setConfianza(r.confianza);
       setAvisos([...(r.confianza !== null && r.confianza < 0.7 ? ["La lectura tiene poca confianza: revisa bien los campos."] : []), ...r.avisos]);
-      avisar("Factura leída. Revisa los datos antes de guardar.");
+      avisar("Factura leída: revisa los datos y confirma. No se guarda nada hasta que pulses «Confirmar y guardar».");
     } catch (e) {
       avisar((e as Error).message, "error");
     } finally {
@@ -124,8 +128,8 @@ export default function FormGasto({
     }
   };
 
-  const guardar = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const guardar = async (e: React.FormEvent | null, forzar = false) => {
+    e?.preventDefault();
     setGuardando(true);
     try {
       const cuerpo = {
@@ -136,13 +140,19 @@ export default function FormGasto({
         await llamar("/api/finanzas", "PATCH", { fila, esperado, cambios: cuerpo });
         avisar("Cambios guardados en GestorIA");
       } else {
-        const r = await llamar<{ fila: number; telegram: boolean; aviso?: string }>("/api/finanzas", "POST", { ...cuerpo, archivo, avisar: avisarTg });
+        const r = await llamar<{ fila: number; telegram: boolean; aviso?: string }>("/api/finanzas", "POST", { ...cuerpo, archivo, avisar: avisarTg, forzar });
         avisar(`Guardado como #G${r.fila}${r.telegram ? " · avisado en Telegram" : ""}`);
         if (r.aviso) avisar(r.aviso, "error");
       }
       alGuardar();
     } catch (e) {
-      avisar((e as Error).message, "error");
+      const msg = (e as Error).message;
+      if (/^DUPLICADO/.test(msg) && !forzar) {
+        setGuardando(false);
+        if (confirm(msg.replace(/^DUPLICADO: /, "⚠️ ") + "\n\n¿Es otra factura distinta y quieres guardarla igualmente?")) return guardar(null, true);
+        return;
+      }
+      avisar(msg, "error");
     } finally {
       setGuardando(false);
     }
@@ -178,6 +188,12 @@ export default function FormGasto({
               <Boton className="mt-3" onClick={() => input.current?.click()}>Elegir archivo o hacer foto</Boton>
             </>
           )}
+        </div>
+      )}
+      {leida && !fila && (
+        <div className="rounded-xl border border-acento/50 bg-acento-suave p-3 text-sm">
+          <b>👀 Revisa lo que he leído antes de guardar.</b> Cambia lo que no esté bien (importe, fecha, proveedor, categoría…) o añade lo que falte.
+          {confianza !== null && <span className="ml-1 text-xs text-txt-2">Seguridad de la lectura: {Math.round(confianza * 100)} %.</span>}
         </div>
       )}
       {avisos.length > 0 && (
@@ -285,7 +301,7 @@ export default function FormGasto({
         ) : (
           <span className="text-xs text-txt-3">Fila #G{fila} de GestorIA · lo verás igual desde Telegram</span>
         )}
-        <Boton type="submit" tipo="primario" disabled={guardando || leyendo}>{guardando ? "Guardando…" : fila ? "Guardar cambios" : "Guardar gasto"}</Boton>
+        <Boton type="submit" tipo="primario" disabled={guardando || leyendo}>{guardando ? "Guardando…" : fila ? "Guardar cambios" : leida ? "✓ Confirmar y guardar" : "Guardar gasto"}</Boton>
       </div>
     </form>
   );

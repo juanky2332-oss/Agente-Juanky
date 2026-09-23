@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line, ReferenceLine,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line, ReferenceLine, PieChart, Pie, Cell,
 } from "recharts";
 import { eur, eur0, mesCorto } from "@/lib/parse";
 
@@ -215,6 +215,85 @@ export function BarraPartes({ partes }: { partes: { nombre: string; valor: numbe
         ))}
       </div>
       <Leyenda items={partes.map((p) => ({ nombre: p.nombre, color: p.color, valor: `${eur(p.valor)} · ${Math.round((p.valor / tot) * 100)} %` }))} />
+    </div>
+  );
+}
+
+/**
+ * Sectores (donut) para "de qué se compone el total". Máximo 6 porciones: el resto se junta
+ * en "Otros" (gris). El color lo decide quien llama (sigue a la entidad, nunca al tamaño).
+ * Leyenda con importe y % siempre visible: la identidad nunca va solo por color.
+ */
+export function Donut({
+  items, alto = 220, formato = eur, centro, onClick,
+}: {
+  items: { nombre: string; valor: number; color: string; clave?: string }[];
+  alto?: number;
+  formato?: (n: number) => string;
+  centro?: { valor: string; etiqueta: string };
+  onClick?: (clave: string) => void;
+}) {
+  const c = useColores();
+  const pos = items.filter((i) => i.valor > 0).sort((a, b) => b.valor - a.valor);
+  const top = pos.slice(0, 5);
+  const resto = pos.slice(5).reduce((s, i) => s + i.valor, 0);
+  const datos = resto > 0 ? [...top, { nombre: "Otros", valor: resto, color: c.otros, clave: "" }] : top;
+  const tot = datos.reduce((s, i) => s + i.valor, 0) || 1;
+  if (!datos.length) return <p className="text-sm text-txt-3">Sin datos</p>;
+  return (
+    <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="relative" style={{ height: alto }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={datos} dataKey="valor" nameKey="nombre" innerRadius="62%" outerRadius="92%" paddingAngle={datos.length > 1 ? 1.5 : 0} stroke={c.card} strokeWidth={2} isAnimationActive={false}
+              onClick={onClick ? (d: { payload?: { clave?: string; nombre?: string } }) => d?.payload?.clave && onClick(d.payload.clave) : undefined}>
+              {datos.map((d) => <Cell key={d.nombre} fill={d.color} cursor={onClick && d.clave ? "pointer" : "default"} />)}
+            </Pie>
+            <Tooltip content={({ active, payload }) => active && payload?.length ? (
+              <CajaTooltip titulo={String(payload[0].name)} filas={[{ color: String((payload[0].payload as { color: string }).color), nombre: `${Math.round((Number(payload[0].value) / tot) * 100)} % del total`, valor: formato(Number(payload[0].value)) }]} />
+            ) : null} />
+          </PieChart>
+        </ResponsiveContainer>
+        {centro && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+            <div><div className="text-lg font-semibold tabular text-txt">{centro.valor}</div><div className="text-[11px] text-txt-3">{centro.etiqueta}</div></div>
+          </div>
+        )}
+      </div>
+      <ul className="grid gap-1.5 text-xs">
+        {datos.map((d) => (
+          <li key={d.nombre}>
+            <button type="button" disabled={!onClick || !d.clave} onClick={() => onClick && d.clave && onClick(d.clave)} className="flex w-full items-center justify-between gap-2 text-left enabled:hover:underline">
+              <span className="flex min-w-0 items-center gap-1.5 text-txt-2"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: d.color }} /><span className="truncate">{d.nombre}</span></span>
+              <span className="shrink-0 tabular text-txt">{formato(d.valor)} <span className="text-txt-3">· {Math.round((d.valor / tot) * 100)} %</span></span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Barras simples de una serie (un color): p.ej. gasto mensual de una sola categoría. */
+export function BarrasSimples({ datos, clave, color, alto = 240, media, formato = eur, etiquetaX }: {
+  datos: Record<string, number | string | null>[]; clave: string; color: string; alto?: number; media?: number; formato?: (n: number) => string; etiquetaX?: (v: string) => string;
+}) {
+  const c = useColores();
+  const fx = etiquetaX || ((v: string) => (/^d{4}-d{2}$/.test(v) ? mesCorto(v) : v));
+  return (
+    <div style={{ height: alto }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={datos} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="24%">
+          <CartesianGrid vertical={false} stroke={c.grid} />
+          <XAxis dataKey="mes" tickFormatter={(v) => fx(String(v))} tick={{ fill: c["txt-3"], fontSize: 11 }} axisLine={{ stroke: c.borde }} tickLine={false} />
+          <YAxis tickFormatter={ejeY} tick={{ fill: c["txt-3"], fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
+          <Tooltip cursor={{ fill: c.grid, opacity: 0.6 }} content={({ active, payload, label }) => active && payload?.length ? (
+            <CajaTooltip titulo={fx(String(label))} filas={[{ color, nombre: String(payload[0].name), valor: formato(Number(payload[0].value)) }]} />
+          ) : null} />
+          {media !== undefined && media > 0 && <ReferenceLine y={media} stroke={c["txt-3"]} strokeDasharray="4 4" label={{ value: "media " + formato(media), fill: c["txt-3"], fontSize: 11, position: "insideTopRight" }} />}
+          <Bar dataKey={clave} name={clave} fill={color} radius={[4, 4, 0, 0]} maxBarSize={44} isAnimationActive={false} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }

@@ -4,6 +4,8 @@ import { useApi, Tarjeta, Boton, Cargando, FalloCarga, Titulo, Vacio, llamar, av
 import { claveEmpresa, normaliza } from "@/lib/parse";
 
 type C = Record<string, string> & { fila: number };
+interface Quien { exacto: string; interpretacion: string; nota: string; descartados: number; candidatos: { empresa: string; motivo: string; confianza: "alta" | "media" | "baja"; pregunta?: string; marcas: string[]; ficha: string[] }[] }
+const CONF = { alta: { t: "Lo tiene seguro", cls: "bg-bien/15 text-bien-txt" }, media: { t: "Muy probable", cls: "bg-aviso/20 text-aviso-txt" }, baja: { t: "Puede ser: pregunta", cls: "bg-card-2 text-txt-2" } };
 
 export default function Contactos() {
   const { datos, error, cargando, recargar } = useApi<{ cabecera: string[]; contactos: C[] }>("/api/contactos");
@@ -12,7 +14,8 @@ export default function Contactos() {
   const [nuevo, setNuevo] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [prov, setProv] = useState("");
-  const [provRes, setProvRes] = useState("");
+  const [provRes, setProvRes] = useState<Quien | null>(null);
+  const [verExacto, setVerExacto] = useState(false);
   const [buscando, setBuscando] = useState(false);
 
   const cab = datos?.cabecera || [];
@@ -59,7 +62,8 @@ export default function Contactos() {
     e.preventDefault();
     setBuscando(true);
     try {
-      setProvRes((await llamar<{ resultado: string }>(`/api/proveedores?q=${encodeURIComponent(prov)}`, "GET")).resultado);
+      setProvRes(null);
+      setProvRes(await llamar<Quien>(`/api/contactos/quien?q=${encodeURIComponent(prov)}`, "GET"));
     } catch (x) {
       avisar((x as Error).message, "error");
     } finally {
@@ -75,7 +79,7 @@ export default function Contactos() {
       <Titulo titulo="Contactos y proveedores" sub={`${datos?.contactos.length || 0} fichas en «tarjetas visitas» · ${grupos.size} empresas`}
         extra={<Boton tipo="primario" onClick={() => (setForm({}), setEd(null), setNuevo(true))}>+ Nuevo contacto</Boton>} />
       <div className="grid gap-4 lg:grid-cols-3">
-        <Tarjeta className="lg:col-span-2" titulo="Fichas" extra={<input className={inputCls + " !w-48 !py-1 text-xs"} placeholder="Buscar empresa, persona, email…" value={q} onChange={(e) => setQ(e.target.value)} />}>
+        <Tarjeta className="lg:col-span-2 order-2 lg:order-1" titulo="Fichas" extra={<input className={inputCls + " !w-48 !py-1 text-xs"} placeholder="Buscar empresa, persona, email…" value={q} onChange={(e) => setQ(e.target.value)} />}>
           {lista.length ? (
             <div className="grid gap-2 sm:grid-cols-2">
               {lista.map((c) => {
@@ -105,12 +109,46 @@ export default function Contactos() {
             </div>
           ) : <Vacio>Sin resultados.</Vacio>}
         </Tarjeta>
-        <Tarjeta titulo="Buscador de proveedores" sub="El mismo motor que /prov del bot: fichas de contacto + maestro de acreedores.">
+        <Tarjeta className="order-1 lg:order-2" titulo="🔎 ¿Quién me lo puede vender?" sub="Escribe un producto, material o marca. Te digo quién lo tiene seguro (está en tus hojas) y quién probablemente (por las marcas que distribuye), con su teléfono.">
           <form onSubmit={buscarProv} className="flex gap-2">
-            <input className={inputCls} value={prov} onChange={(e) => setProv(e.target.value)} placeholder="Omron, rodamientos, OC Soluciones…" />
-            <Boton type="submit" disabled={buscando || !prov.trim()}>{buscando ? "…" : "Buscar"}</Boton>
+            <input className={inputCls} value={prov} onChange={(e) => setProv(e.target.value)} placeholder="rodamiento 6205, variador Omron, banda PU…" />
+            <Boton type="submit" tipo="primario" disabled={buscando || prov.trim().length < 2}>{buscando ? "Buscando…" : "Buscar"}</Boton>
           </form>
-          {provRes && <div className="mt-3 max-h-[60vh] overflow-y-auto scroll-fino rounded-lg bg-card-2 p-3"><HtmlTelegram html={provRes} /></div>}
+          {buscando && <p className="mt-3 animate-pulse text-xs text-txt-3">Cruzando tus fichas, la matriz de marcas y el maestro de proveedores…</p>}
+          {provRes && (
+            <div className="mt-3 grid gap-3">
+              {provRes.interpretacion && <p className="text-xs text-txt-3">Entiendo: {provRes.interpretacion}</p>}
+              {provRes.candidatos.length ? provRes.candidatos.map((k) => {
+                const fichas = (datos?.contactos || []).filter((c) => claveEmpresa(c.Empresa) === claveEmpresa(k.empresa));
+                return (
+                  <div key={k.empresa} className="rounded-xl border border-borde p-3 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-semibold">{k.empresa}</div>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${CONF[k.confianza].cls}`}>{CONF[k.confianza].t}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-txt-2">{k.motivo}</p>
+                    {k.pregunta && <p className="mt-1 text-xs text-txt-3">📞 Pregúntale: {k.pregunta}</p>}
+                    {fichas.map((c) => (
+                      <div key={c.fila} className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                        <span className="text-txt-2">{c.Contacto || "—"}</span>
+                        {c.Telefono && <a className="text-acento" href={`tel:${c.Telefono.split(/[;']/)[0].replace(/s/g, "")}`}>☏ {c.Telefono.split(/[;']/)[0]}</a>}
+                        {c.Email && <a className="text-acento" href={`mailto:${c.Email}`}>✉ {c.Email}</a>}
+                      </div>
+                    ))}
+                    {!fichas.length && <p className="mt-2 text-[11px] text-txt-3">Sin ficha de contacto: está en tu matriz de marcas.</p>}
+                  </div>
+                );
+              }) : <Vacio>{provRes.nota || "Ninguno de tus proveedores parece tenerlo."}</Vacio>}
+              {provRes.candidatos.length > 0 && provRes.nota && <p className="text-xs text-txt-3">{provRes.nota}</p>}
+              <p className="text-[11px] text-txt-3">«Lo tiene seguro» = está escrito en tu ficha o en su lista de marcas. Lo demás es una deducción: confírmalo al llamar.</p>
+              {provRes.exacto && (
+                <div>
+                  <Boton pequeno tipo="fantasma" onClick={() => setVerExacto(!verExacto)}>{verExacto ? "Ocultar" : "Ver"} coincidencias exactas en tus hojas</Boton>
+                  {verExacto && <div className="mt-2 max-h-[50vh] overflow-y-auto scroll-fino rounded-lg bg-card-2 p-3"><HtmlTelegram html={provRes.exacto} /></div>}
+                </div>
+              )}
+            </div>
+          )}
         </Tarjeta>
       </div>
       <Modal abierto={nuevo} cerrar={() => setNuevo(false)} titulo={ed ? `Editar #C${ed.fila}` : "Nuevo contacto"}>

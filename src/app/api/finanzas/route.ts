@@ -1,8 +1,8 @@
 import { manejar, nuevoId } from "@/lib/ruta";
 import { cargarFinanzas } from "@/lib/datos";
-import { anadirFila, modificarFila, borrarFila } from "@/lib/sheets";
+import { anadirFila, modificarFila, borrarFila, leerTabla, aObjeto } from "@/lib/sheets";
 import { n8n, avisarTelegram, escHtml, ErrorN8n } from "@/lib/n8n";
-import { COLS, CATEGORIAS, AMBITOS } from "@/lib/finanzas";
+import { COLS, CATEGORIAS, AMBITOS, claveProveedor } from "@/lib/finanzas";
 import { num, eur, isoAEs, fechaISO } from "@/lib/parse";
 
 export const dynamic = "force-dynamic";
@@ -81,10 +81,28 @@ function aColumnas(e: Entrada, parcial = false): Record<string, string> {
 }
 
 export const POST = manejar(async (req: Request) => {
-  const b = (await req.json()) as Entrada & { archivo?: { base64: string; mime: string; nombre: string }; avisar?: boolean };
+  const b = (await req.json()) as Entrada & { archivo?: { base64: string; mime: string; nombre: string }; avisar?: boolean; forzar?: boolean };
   if (!b.proveedor && !b.concepto) throw new ErrorN8n("Pon al menos el proveedor o el concepto", 400);
   const cols = aColumnas({ tipo: "gasto", ...b });
   if (!cols[COLS.fecha]) throw new ErrorN8n("Falta la fecha", 400);
+  // ¿Ya está? (misma factura por número, o mismo proveedor e importe en ±4 días). Pasó con
+  // Plenitude: entró por el correo y luego se subió la foto. Se avisa y se guarda solo si confirmas.
+  if (!b.forzar) {
+    const t = await leerTabla("GestorIA");
+    const nd = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const f0 = Date.parse(fechaISO(cols[COLS.fecha]) || "");
+    const k = claveProveedor(cols[COLS.proveedor] || "", cols[COLS.concepto] || "");
+    const dup = t.filas.find((f) => {
+      const o = aObjeto(t, f.celdas);
+      if (cols[COLS.doc] && nd(o[COLS.doc] || "") === nd(cols[COLS.doc])) return true;
+      const d = Date.parse(fechaISO(o[COLS.fecha]) || "");
+      return claveProveedor(o[COLS.proveedor] || "", o[COLS.concepto] || "") === k && Math.abs(num(o[COLS.total]) - num(cols[COLS.total])) < 0.02 && Math.abs(d - f0) <= 4 * 86400000;
+    });
+    if (dup) {
+      const o = aObjeto(t, dup.celdas);
+      throw new ErrorN8n(`DUPLICADO: ya tienes esta factura como #G${dup.fila} (${o[COLS.proveedor]} · ${o[COLS.total]} € · ${o[COLS.fecha]}${o[COLS.doc] ? " · nº " + o[COLS.doc] : ""}). No la guardo dos veces.`, 409);
+    }
+  }
   let enlace = b.enlace || "";
   let avisoDrive = "";
   if (b.archivo?.base64) {

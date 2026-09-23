@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useApi, Tarjeta, Boton, Cargando, FalloCarga, Titulo, Vacio, llamar, avisar, inputCls, Campo, Chip, Kpi, HtmlTelegram, Modal } from "@/components/ui";
-import { Ranking, useColores } from "@/components/graficas";
+import { Ranking, Donut, BarrasSimples, useColores, colorSerie } from "@/components/graficas";
 import { normaliza, num } from "@/lib/parse";
 
 type F = Record<string, string> & { fila: number };
@@ -27,6 +27,18 @@ export default function Gastro() {
   const rs = datos?.restaurantes || [];
   const visitados = rs.filter((r) => num(r.VISITAS) > 0 || normaliza(r.ESTADO) === "visitado");
   const conNota = [...rs, ...(datos?.vinos || [])].filter((x) => num(x.NOTA) > 0);
+  const vs = datos?.vinos || [];
+  // Reparto por un campo (zona, cocina, tipo, D.O.): top 5 + "Otros", color por orden fijo
+  const reparto = (xs: F[], campo: string) => {
+    const m = new Map<string, number>();
+    for (const x of xs) { const k = (x[campo] || "").trim() || "Sin dato"; m.set(k, (m.get(k) || 0) + 1); }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([nombre, valor], k) => ({ nombre, valor, color: nombre === "Sin dato" ? c.otros : colorSerie(c, k % 8), clave: nombre }));
+  };
+  const histo = (xs: F[]) => Array.from({ length: 10 }, (_, k) => ({ mes: String(k + 1), Valoraciones: xs.filter((x) => Math.round(num(x.NOTA)) === k + 1).length }));
+  const pendientes = rs.filter((r) => normaliza(r.ESTADO) === "pendiente");
+  const recomendado = pendientes.find((r) => (r["RECOMENDADO POR"] || "").trim()) || pendientes[0];
+  const actual = que === "restaurantes" ? rs : vs;
+  const mediaActual = (() => { const n = actual.filter((x) => num(x.NOTA) > 0); return n.length ? n.reduce((s2, x) => s2 + num(x.NOTA), 0) / n.length : 0; })();
 
   const enviar = async () => {
     if (!modal) return;
@@ -65,12 +77,58 @@ export default function Gastro() {
           <HtmlTelegram html={resultado} />
         </Tarjeta>
       )}
+      <div className="mb-4 flex gap-1.5">
+        <Chip activo={que === "restaurantes"} onClick={() => (setQue("restaurantes"), setEstado(""))}>🍽 Restaurantes ({rs.length})</Chip>
+        <Chip activo={que === "vinos"} onClick={() => (setQue("vinos"), setEstado(""))}>🍷 Vinos ({vs.length})</Chip>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3 mb-4">
+        {que === "restaurantes" ? (
+          <>
+            <Tarjeta titulo="¿Cuánto hemos probado?" sub="Visitados frente a pendientes">
+              <Donut alto={170} centro={{ valor: `${rs.length ? Math.round((visitados.length / rs.length) * 100) : 0} %`, etiqueta: "probado" }}
+                items={[{ nombre: "Visitados", valor: visitados.length, color: c.bien, clave: "visitado" }, { nombre: "Pendientes", valor: rs.length - visitados.length, color: c.otros, clave: "pendiente" }]}
+                formato={(n) => String(n)} onClick={(k) => setEstado(k)} />
+            </Tarjeta>
+            <Tarjeta titulo="Por tipo de cocina" sub="Toca para filtrar">
+              <Donut alto={170} items={reparto(rs, "COCINA")} formato={(n) => String(n)} onClick={(k) => setQ(k === "Sin dato" ? "" : k)} />
+            </Tarjeta>
+            <Tarjeta titulo="🎯 Próximo a probar" sub="De la lista de pendientes">
+              {recomendado ? (
+                <div>
+                  <div className="text-xl font-semibold">{recomendado.NOMBRE}</div>
+                  <div className="mt-1 text-sm text-txt-2">{[recomendado.ZONA, recomendado.COCINA, recomendado.PRECIO].filter(Boolean).join(" · ") || "Sin más datos"}</div>
+                  {recomendado["RECOMENDADO POR"] && <div className="mt-1 text-xs text-txt-3">Os lo recomendó {recomendado["RECOMENDADO POR"]}</div>}
+                  <Boton className="mt-3" onClick={() => (setF({ nota: "", comentario: "", platos: "", quien: "" }), setModal({ accion: "apuntar", nombre: recomendado.NOMBRE }))}>Ya hemos ido: valorar</Boton>
+                  <p className="mt-3 text-xs text-txt-3">Quedan {pendientes.length} por probar.</p>
+                </div>
+              ) : <Vacio>¡Los habéis probado todos!</Vacio>}
+            </Tarjeta>
+          </>
+        ) : (
+          <>
+            <Tarjeta titulo="Por tipo" sub="Tinto, blanco, rosado…">
+              <Donut alto={170} items={reparto(vs, "TIPO")} formato={(n) => String(n)} onClick={(k) => setQ(k === "Sin dato" ? "" : k)} />
+            </Tarjeta>
+            <Tarjeta titulo="Por denominación de origen" sub="Toca para filtrar">
+              <Donut alto={170} items={reparto(vs, "DO")} formato={(n) => String(n)} onClick={(k) => setQ(k === "Sin dato" ? "" : k)} />
+            </Tarjeta>
+            <Tarjeta titulo="Mejor relación calidad-precio" sub="Nota ÷ precio, entre los que tienen las dos">
+              <Ranking
+                items={vs.filter((v) => num(v.NOTA) > 0 && num(v.PRECIO) > 0).map((v) => ({ nombre: v.NOMBRE, valor: num(v.NOTA) / num(v.PRECIO), clave: v.NOMBRE + v.fila, sub: `${v.NOTA}/10 · ${v.PRECIO}`, color: c.s4 }))
+                  .sort((a, b) => b.valor - a.valor).slice(0, 5)}
+                formato={(n) => n.toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " pts/€"} vacio="Faltan notas o precios"
+              />
+            </Tarjeta>
+          </>
+        )}
+      </div>
+      <Tarjeta className="mb-4" titulo="Cómo puntuáis" sub={`Reparto de notas en ${que} · media ${mediaActual ? mediaActual.toLocaleString("es-ES", { maximumFractionDigits: 1 }) : "—"}`}>
+        <BarrasSimples datos={histo(actual)} clave="Valoraciones" color={que === "vinos" ? c.s8 : c.s1} alto={170} formato={(n) => `${n} ${n === 1 ? "valoración" : "valoraciones"}`} etiquetaX={(v) => v} />
+      </Tarjeta>
       <div className="grid gap-4 lg:grid-cols-3">
         <Tarjeta className="lg:col-span-2" titulo={que === "restaurantes" ? "Restaurantes" : "Vinos"}
           extra={
             <div className="flex flex-wrap gap-1.5">
-              <Chip activo={que === "restaurantes"} onClick={() => (setQue("restaurantes"), setEstado(""))}>🍽 Restaurantes</Chip>
-              <Chip activo={que === "vinos"} onClick={() => (setQue("vinos"), setEstado(""))}>🍷 Vinos</Chip>
               {que === "restaurantes" && ["", "pendiente", "visitado"].map((e) => <Chip key={e} activo={estado === e} onClick={() => setEstado(e)}>{e || "todos"}</Chip>)}
               <input className={inputCls + " !w-32 !py-1 text-xs"} placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>

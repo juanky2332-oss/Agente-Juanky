@@ -8,20 +8,22 @@ export type Ambito = "Casa" | "Personal" | "Taller" | "Flownexion";
 export const AMBITOS: Ambito[] = ["Casa", "Personal", "Taller", "Flownexion"];
 
 // Orden FIJO: el color sigue a la categoría, nunca al ranking (8 tonos + gris para el resto).
+// Los 8 con color propio son los gastos de casa de Juanky; el resto sale en gris.
 export const CATEGORIAS_COLOR = [
   "Luz",
   "Gas",
-  "Telefonía e internet",
+  "Agua",
   "Suscripciones y software",
+  "Vivienda",
+  "Deporte",
+  "Telefonía e internet",
   "Delivery y restaurantes",
-  "Supermercado",
-  "Seguros",
-  "Vehículo y transporte",
 ] as const;
 export const CATEGORIAS = [
   ...CATEGORIAS_COLOR,
-  "Agua",
-  "Vivienda",
+  "Supermercado",
+  "Seguros",
+  "Vehículo y transporte",
   "Hogar y compras",
   "Salud",
   "Bebé",
@@ -38,19 +40,21 @@ export type Categoria = (typeof CATEGORIAS)[number];
 export const SUMINISTROS: string[] = ["Luz", "Gas", "Agua", "Telefonía e internet"];
 // Solo estas categorías pueden ser "pago fijo" por deducción. El resto (delivery, súper,
 // gasolina...) son compras sueltas aunque se repitan: solo cuentan si las marcas como recurrentes.
-export const FIJOS_POSIBLES: string[] = [...SUMINISTROS, "Suscripciones y software", "Seguros", "Vivienda", "Servicios profesionales", "Formación", "Impuestos y tasas"];
+export const FIJOS_POSIBLES: string[] = [...SUMINISTROS, "Suscripciones y software", "Seguros", "Vivienda", "Servicios profesionales", "Formación", "Impuestos y tasas", "Deporte"];
 
 const REGLAS: [RegExp, Categoria][] = [
-  [/\bgas natural\b|\bgas\b|butano|propano|nedgia|nortegas/, "Gas"],
-  [/electric|\bluz\b|iberdrola|endesa|naturgy|plenitude|\beni\b|holaluz|octopus|som energia|lucera|audax|factor energia|energia xxi|curenergia/, "Luz"],
+  // En casa de Juanky Iberdrola es el GAS (la luz es Plenitude): va antes que la regla de luz.
+  [/\bgas natural\b|\bgas\b|butano|propano|nedgia|nortegas|iberdrola/, "Gas"],
+  [/electric|\bluz\b|endesa|naturgy|plenitude|\beni\b|holaluz|octopus|som energia|lucera|audax|factor energia|energia xxi|curenergia/, "Luz"],
   [/vodafone|lowi|movistar|orange|yoigo|\bdigi\b|masmovil|pepephone|simyo|jazztel|\bo2\b|fibra|telefon|\bmovil\b|finetwork|avatel|adamo/, "Telefonía e internet"],
   [/aguas?\b|emuasa|aquona|hidrogea|canal de isabel|aqualia|saneamiento/, "Agua"],
   [/glovo|just ?eat|uber ?eats|deliveroo|telepizza|domino|mcdonald|burger king|restaurante|\bbar\b|cafeteria|kfc|tagliatella|foster/, "Delivery y restaurantes"],
   [/mercadona|carrefour|lidl|aldi|supermercad|\bconsum\b|alcampo|\bdia\b|eroski|hipercor|el arbol|masymas/, "Supermercado"],
-  [/anthropic|openai|chatgpt|claude|google (one|workspace|cloud)|microsoft|adobe|netflix|spotify|\bhbo\b|disney|prime video|amazon prime|apple\.com|icloud|github|vercel|scraperapi|hostinger|n8n|notion|canva|dropbox|suscripci|subscription|perplexity|cursor|youtube premium|dazn/, "Suscripciones y software"],
+  [/anthropic|openai|chatgpt|claude|google (one|workspace|cloud)|microsoft|adobe|netflix|spotify|\bhbo\b|disney|prime video|amazon prime|apple\.com|icloud|github|vercel|scraperapi|hostinger|n8n|notion|canva|dropbox|suscripci|subscription|perplexity|cursor|youtube premium|dazn|supabase|ib ?player|iptv/, "Suscripciones y software"],
   [/seguro|mapfre|\baxa\b|allianz|linea directa|mutua|generali|sanitas|adeslas|asisa|zurich|caser|reale|pelayo|santalucia|ocaso/, "Seguros"],
   [/repsol|cepsa|moeve|\bbp\b|galp|shell|plenoil|ballenoil|gasolin|combustible|carburante|\bitv\b|parking|aparcamiento|peaje|renfe|cabify|\btaxi\b|\buber\b|autopista|neumatic|recambio/, "Vehículo y transporte"],
-  [/alquiler|hipoteca|comunidad de propietarios|comunidad propietarios|\bibi\b/, "Vivienda"],
+  [/alquiler|hipoteca|comunidad de propietarios|comunidad propietarios|comunidad del edificio|cuota de comunidad|\bibi\b/, "Vivienda"],
+  [/gimnasio|\bgym\b|fitness|crossfit|padel|piscina/, "Deporte"],
   [/agencia tributaria|\baeat\b|hacienda|ayuntamiento|impuesto|tasa\b|tasas|seguridad social|\breta\b|autonomo|dgt|multa/, "Impuestos y tasas"],
   [/farmacia|parafarmacia|clinica|dentist|optica|fisioterap|hospital|medic|analisis clinic/, "Salud"],
   [/\bbebe\b|panal|chicco|prenatal|dodot|puericultura|kiabi|toys/, "Bebé"],
@@ -58,7 +62,7 @@ const REGLAS: [RegExp, Categoria][] = [
   [/wurth|ferreter|rodamiento|herramient|tornill|material|suministros industriales|ntn|skf|acero|mecaniz/, "Material y herramientas"],
   [/curso|formacion|udemy|academia|master|libro/, "Formación"],
   [/gestoria|asesor|abogad|notari|registro|consultor/, "Servicios profesionales"],
-  [/cine|teatro|concierto|entradas|hotel|booking|airbnb|vuelo|ryanair|vueling|iberia|viaje|ocio|gimnasio|gym/, "Ocio y viajes"],
+  [/cine|teatro|concierto|entradas|hotel|booking|airbnb|vuelo|ryanair|vueling|iberia|viaje|ocio/, "Ocio y viajes"],
 ];
 
 export function clasificar(proveedor: string, concepto: string): Categoria {
@@ -131,6 +135,18 @@ export function tipoDe(tipoHoja: string, concepto: string): Tipo {
   return "gasto";
 }
 
+// El mismo proveedor llega escrito de varias formas ("Plenitude", "Eni Plenitude Iberia S.L."):
+// sin una clave común, sus recibos no se juntan y los pagos fijos salen partidos.
+const MARCAS: [RegExp, string][] = [
+  [/plenitude|eni/, "plenitude"], [/iberdrola/, "iberdrola"], [/anthropic|claude/, "anthropic"], [/emuasa/, "emuasa"],
+  [/lowi|vodafone/, "lowi"], [/glovo/, "glovo"], [/supabase/, "supabase"], [/ib ?player/, "ibplayer"], [/comunidad/, "comunidad"], [/gimnasio|gym/, "gimnasio"],
+];
+export function claveProveedor(proveedor: string, concepto = ""): string {
+  const t = normaliza(proveedor);
+  for (const [re, k] of MARCAS) if (re.test(t)) return k;
+  return claveEmpresa(proveedor) || normaliza(concepto).slice(0, 20);
+}
+
 export function aMovimiento(fila: number, o: Record<string, string>): Movimiento {
   const proveedor = (o[COLS.proveedor] || "").trim();
   const concepto = (o[COLS.concepto] || "").trim();
@@ -154,7 +170,7 @@ export function aMovimiento(fila: number, o: Record<string, string>): Movimiento
     fecha: f || "1970-01-01",
     fechaTexto: o[COLS.fecha] || "",
     proveedor,
-    provKey: claveEmpresa(proveedor) || normaliza(concepto).slice(0, 20),
+    provKey: claveProveedor(proveedor, concepto),
     concepto,
     base: num(o[COLS.base]),
     iva: num(o[COLS.iva]),

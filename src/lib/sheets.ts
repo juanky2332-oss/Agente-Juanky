@@ -15,6 +15,12 @@ export const GID = {
   Vinos: 1816726944,
   "Bebé": 1978565139,
   "Referencias precios": 156382067,
+  Ingresos: 1373825627,
+  Cobros: 1617010252,
+  Programados: 728492008,
+  "Filtros correo": 1270686954,
+  "Ayudas bebé": 164445042,
+  Borradores: 276141440,
 } as const;
 
 export type Celda = string;
@@ -159,6 +165,70 @@ export async function borrarFila(nombre: keyof typeof GID, fila: number, comprob
     body: { requests: [{ deleteDimension: { range: { sheetId: GID[nombre], dimension: "ROWS", startIndex: fila - 1, endIndex: fila } } }] },
   });
   if (!r.replies) throw new ErrorN8n("Google no confirmó el borrado", 502);
+}
+
+/** Añade varias filas de una vez (una sola escritura). */
+export async function anadirFilas(nombre: string, datos: Record<string, unknown>[], cabecera?: string[]) {
+  if (!datos.length) return { filas: 0 };
+  const cab = cabecera || (await leerTabla(nombre, { hasta: "Z1" })).cabecera;
+  const r = await n8n<{ updates?: { updatedRange?: string; updatedRows?: number } }>({
+    op: "sheets",
+    method: "POST",
+    path: `/values/${q(nombre)}!A1:${letra(cab.length - 1)}1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    body: { values: datos.map((d) => montarFila(cab, d)) },
+  });
+  if (!r.updates?.updatedRange) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  return { filas: r.updates.updatedRows || datos.length };
+}
+
+/** Busca por la columna ID (no por número de fila: borrar filas desplaza los números). */
+export function filaPorId(t: Tabla, id: string) {
+  const i = col(t, "ID");
+  if (i < 0) throw new ErrorN8n(`La hoja ${t.nombre} no tiene columna ID`, 500);
+  return t.filas.find((f) => (f.celdas[i] || "").trim() === id.trim());
+}
+
+/** Siguiente ID correlativo con prefijo: I001, I002... (legible para decirlo por Telegram). */
+export function siguienteId(t: Tabla, prefijo: string, ancho = 3) {
+  const i = col(t, "ID");
+  let max = 0;
+  for (const f of t.filas) {
+    const m = (f.celdas[i] || "").match(new RegExp(`^${prefijo}(\\d+)$`));
+    if (m) max = Math.max(max, +m[1]);
+  }
+  return prefijo + String(max + 1).padStart(ancho, "0");
+}
+
+/** Modifica una fila localizada por ID. */
+export async function modificarPorId(nombre: string, id: string, cambios: Record<string, unknown>) {
+  const t = await leerTabla(nombre);
+  const f = filaPorId(t, id);
+  if (!f) throw new ErrorN8n(`${id} ya no existe en ${nombre}. Recarga.`, 409);
+  const nueva = montarFila(t.cabecera, cambios, f.celdas);
+  const r = await n8n<{ updatedRange?: string }>({
+    op: "sheets",
+    method: "PUT",
+    path: `/values/${q(nombre)}!A${f.fila}:${letra(t.cabecera.length - 1)}${f.fila}?valueInputOption=RAW`,
+    body: { values: [nueva] },
+  });
+  if (!r.updatedRange) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  return { fila: f.fila, antes: aObjeto(t, f.celdas) };
+}
+
+/** Borra varias filas por ID en una sola llamada (de abajo arriba para no descolocar). */
+export async function borrarPorIds(nombre: keyof typeof GID, ids: string[]) {
+  if (!ids.length) return 0;
+  const t = await leerTabla(nombre);
+  const filas = ids.map((id) => filaPorId(t, id)?.fila).filter((x): x is number => !!x).sort((a, b) => b - a);
+  if (!filas.length) return 0;
+  const r = await n8n<{ replies?: unknown[] }>({
+    op: "sheets",
+    method: "POST",
+    path: ":batchUpdate",
+    body: { requests: filas.map((f) => ({ deleteDimension: { range: { sheetId: GID[nombre], dimension: "ROWS", startIndex: f - 1, endIndex: f } } })) },
+  });
+  if (!r.replies) throw new ErrorN8n("Google no confirmó el borrado", 502);
+  return filas.length;
 }
 
 export { letra };

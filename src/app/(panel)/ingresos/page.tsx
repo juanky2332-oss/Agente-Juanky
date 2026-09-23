@@ -1,47 +1,136 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useApi, Tarjeta, Kpi, Boton, Cargando, FalloCarga, Titulo, Chip, Vacio, llamar, avisar, Modal, Campo, inputCls } from "@/components/ui";
-import { Ranking, BarraPartes, useColores } from "@/components/graficas";
-import type { TrabajoTaller, ProyectoFlownexion } from "@/lib/trabajos";
-import type { Movimiento } from "@/lib/finanzas";
-import { eur, eur0, isoAEs, num } from "@/lib/parse";
+import { BarraPartes, BarrasMes, Donut, useColores, colorSerie } from "@/components/graficas";
+import Programados, { type ProgramadoApi } from "@/components/gastos/Programados";
+import { NEGOCIOS, TIPOS_INGRESO, METODOS, cobrosPorMes, type Ingreso, type ResumenNegocio, type Cobro } from "@/lib/ingresos";
+import { eur, eur0, isoAEs, hoyISO, num, normaliza, mesClave } from "@/lib/parse";
+import { mesesEntre } from "@/lib/finanzas";
 
-interface Datos {
-  taller: { trabajos: TrabajoTaller[]; resumen: { facturado: number; miParte: number; cobrado: number; pendiente: number; nPendientes: number; nSinPrecio: number } };
-  flownexion: { proyectos: ProyectoFlownexion[]; reparto: string; notasSueltas: string[]; resumen: { ganoApps: number; mantenimientoCobrado: number; cobradoPagos: number; pendiente: number; nPendientes: number } };
-  otros: Movimiento[];
+interface Datos { ingresos: Ingreso[]; resumen: Record<"Todo" | "Taller" | "Flownexion" | "Otro", ResumenNegocio>; programados: ProgramadoApi[] }
+type Vista = "Todo" | "Taller" | "Flownexion" | "Otro";
+type Filtro = "todos" | "porcobrar" | "parcial" | "cobrado" | "sinprecio" | "sinfecha";
+
+const ESTADO: Record<Ingreso["estado"], { txt: string; cls: string; ico: string }> = {
+  cobrado: { txt: "Cobrado", cls: "bg-bien/15 text-bien-txt", ico: "✓" },
+  parcial: { txt: "A medias", cls: "bg-aviso/20 text-aviso-txt", ico: "◐" },
+  pendiente: { txt: "Pendiente", cls: "bg-alerta/10 text-alerta-txt", ico: "○" },
+  "sin precio": { txt: "Sin precio", cls: "bg-card-2 text-txt-3", ico: "?" },
+  anulado: { txt: "Anulado", cls: "bg-card-2 text-txt-3 line-through", ico: "✕" },
+};
+const ICO: Record<string, string> = { Taller: "🔧", Flownexion: "💻", Otro: "📦", Todo: "💰" };
+
+function Estado({ e }: { e: Ingreso["estado"] }) {
+  const x = ESTADO[e];
+  return <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${x.cls}`}><span aria-hidden>{x.ico}</span>{x.txt}</span>;
 }
 
-type Cobro = { hoja: "taller" | "flownexion"; fila: number; esperado: string; falta: number; nombre: string };
+function Progreso({ i }: { i: Ingreso }) {
+  if (i.importe === null || !i.importe) return null;
+  const p = Math.min(100, (i.cobrado / i.importe) * 100);
+  return (
+    <div className="mt-1.5 h-1.5 w-full rounded-full bg-card-2" title={`Cobrado ${eur(i.cobrado)} de ${eur(i.importe)}`}>
+      <div className="h-1.5 rounded-full bg-bien" style={{ width: `${Math.max(p, p > 0 ? 3 : 0)}%` }} />
+    </div>
+  );
+}
+
+/** Fecha editable en la propia línea: si falta, se pone con un toque. */
+function FechaEditable({ valor, guardar, etiqueta }: { valor: string | null; guardar: (iso: string) => Promise<void>; etiqueta: string }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState(valor || "");
+  const [g, setG] = useState(false);
+  if (!edit)
+    return (
+      <button type="button" onClick={(e) => (e.stopPropagation(), setEdit(true))} className={`tabular text-left hover:underline ${valor ? "text-txt-2" : "text-aviso-txt font-medium"}`} title={`Cambiar ${etiqueta}`}>
+        {valor ? isoAEs(valor) : "＋ poner fecha"}
+      </button>
+    );
+  return (
+    <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <input type="date" autoFocus className={inputCls + " !w-36 !py-0.5 text-xs"} value={v} onChange={(e) => setV(e.target.value)} />
+      <Boton pequeno tipo="primario" disabled={!v || g} onClick={async () => { setG(true); try { await guardar(v); setEdit(false); } finally { setG(false); } }}>✓</Boton>
+      <Boton pequeno tipo="fantasma" onClick={() => setEdit(false)}>✕</Boton>
+    </span>
+  );
+}
+
+interface FormI { negocio: string; cliente: string; concepto: string; referencia: string; fecha: string; tipo: string; unidades: string; precioUnit: string; totalTrabajo: string; porcentaje: string; importe: string; vencimiento: string; notas: string; estado: string; cobroInicial: string; fechaCobro: string }
+const formVacio = (negocio: string): FormI => ({
+  negocio: negocio === "Todo" ? "Taller" : negocio, cliente: "", concepto: "", referencia: "", fecha: hoyISO(), tipo: negocio === "Flownexion" ? "proyecto" : "trabajo",
+  unidades: "", precioUnit: "", totalTrabajo: "", porcentaje: negocio === "Flownexion" ? "60" : "10", importe: "", vencimiento: "", notas: "", estado: "", cobroInicial: "", fechaCobro: hoyISO(),
+});
+const aForm = (i: Ingreso): FormI => ({
+  negocio: i.negocio, cliente: i.cliente, concepto: i.concepto, referencia: i.referencia, fecha: i.fecha || "", tipo: i.tipo, unidades: i.unidades,
+  precioUnit: i.precioUnit === null ? "" : String(i.precioUnit), totalTrabajo: i.totalTrabajo === null ? "" : String(i.totalTrabajo), porcentaje: i.porcentaje === null ? "" : String(i.porcentaje),
+  importe: i.importe === null ? "" : String(i.importe), vencimiento: i.vencimiento || "", notas: i.notas, estado: i.estadoHoja, cobroInicial: "", fechaCobro: hoyISO(),
+});
 
 export default function Ingresos() {
   const { datos, error, cargando, recargar } = useApi<Datos>("/api/ingresos");
-  const [vista, setVista] = useState<"todo" | "pendiente" | "sinprecio" | "cobrado">("todo");
-  const [cobro, setCobro] = useState<Cobro | null>(null);
-  const [importe, setImporte] = useState("");
+  const [vista, setVista] = useState<Vista>("Todo");
+  const [filtro, setFiltro] = useState<Filtro>("porcobrar");
+  const [q, setQ] = useState("");
+  const [ficha, setFicha] = useState<string | null>(null);
+  const [nuevo, setNuevo] = useState<FormI | null>(null);
+  const [cobrar, setCobrar] = useState<{ i: Ingreso; importe: string; fecha: string; metodo: string; notas: string } | null>(null);
   const [enviando, setEnviando] = useState(false);
   const c = useColores();
+
+  const ings = useMemo(() => (datos?.ingresos || []).filter((x) => vista === "Todo" || x.negocio === vista), [datos, vista]);
+  const lista = useMemo(() => {
+    const t = normaliza(q);
+    return ings
+      .filter((x) =>
+        filtro === "porcobrar" ? x.pendiente > 0.005 : filtro === "parcial" ? x.estado === "parcial" : filtro === "cobrado" ? x.estado === "cobrado" : filtro === "sinprecio" ? x.estado === "sin precio" : filtro === "sinfecha" ? !x.fecha : true,
+      )
+      .filter((x) => !t || normaliza(`${x.id} ${x.cliente} ${x.concepto} ${x.referencia} ${x.notas}`).includes(t))
+      .sort((a, b) => Number(b.vencido) - Number(a.vencido) || (b.fecha || "").localeCompare(a.fecha || "") || b.pendiente - a.pendiente);
+  }, [ings, filtro, q]);
 
   if (cargando && !datos) return <Cargando />;
   if (error && !datos) return <FalloCarga error={error} reintentar={recargar} />;
   if (!datos) return null;
-  const { taller: t, flownexion: f } = datos;
-  const pendienteTotal = t.resumen.pendiente + f.resumen.pendiente;
-  const otrosTotal = datos.otros.reduce((s, m) => s + m.total, 0);
 
-  const trabajos = t.trabajos.filter((x) =>
-    vista === "pendiente" ? x.falta > 0.005 : vista === "sinprecio" ? x.sinPrecio : vista === "cobrado" ? !x.sinPrecio && x.falta <= 0.005 : true,
-  );
+  const r = datos.resumen[vista];
+  const sel = ficha ? datos.ingresos.find((x) => x.id === ficha) || null : null;
+  const sinFecha = ings.filter((x) => !x.fecha).length;
+  const cobrosSinFecha = ings.reduce((s, x) => s + x.cobros.filter((k) => !k.fecha).length, 0);
+  const hoy = hoyISO();
+  const meses = mesesEntre(mesClave(new Date(Date.parse(hoy) - 330 * 86400000).toISOString().slice(0, 10)), mesClave(hoy));
+  const serieCobros = cobrosPorMes(ings, meses);
+  const hayCobrosFechados = serieCobros.some((m) => Number(m.Taller) + Number(m.Flownexion) + Number(m.Otro) > 0);
+  const pendientePorCliente = new Map<string, number>();
+  for (const x of ings) if (x.pendiente > 0.005) { const k = x.cliente || (x.negocio === "Taller" ? "Taller (sin cliente)" : x.negocio); pendientePorCliente.set(k, (pendientePorCliente.get(k) || 0) + x.pendiente); }
+  const parcialImporte = ings.filter((x) => x.estado === "parcial").reduce((s, x) => s + x.cobrado, 0);
 
+  const guardarCampo = async (id: string, cambios: Record<string, unknown>, ok = "Guardado") => {
+    try {
+      await llamar("/api/ingresos", "PATCH", { id, cambios });
+      avisar(ok + " · avisado en Telegram");
+      recargar();
+    } catch (e) {
+      avisar((e as Error).message, "error");
+      throw e;
+    }
+  };
+  const guardarCobroCampo = async (id: string, cambios: Record<string, unknown>) => {
+    try {
+      await llamar("/api/ingresos/cobros", "PATCH", { id, ...cambios });
+      avisar("Pago actualizado");
+      recargar();
+    } catch (e) {
+      avisar((e as Error).message, "error");
+      throw e;
+    }
+  };
   const confirmarCobro = async () => {
-    if (!cobro) return;
+    if (!cobrar) return;
     setEnviando(true);
     try {
-      const r = await llamar<{ escrito: string; faltaDespues: number }>("/api/ingresos/cobrado", "POST", {
-        hoja: cobro.hoja, fila: cobro.fila, esperado: cobro.esperado, importe: importe ? num(importe) : undefined,
-      });
-      avisar(`Apuntado: ${r.escrito}. Pendiente ahora ${eur(r.faltaDespues)}. Avisado en Telegram.`);
-      setCobro(null);
+      const x = await llamar<{ importe: number; pendiente: number }>("/api/ingresos/cobros", "POST", { ingreso: cobrar.i.id, importe: cobrar.importe || undefined, fecha: cobrar.fecha, metodo: cobrar.metodo, notas: cobrar.notas });
+      avisar(`Cobro de ${eur(x.importe)} apuntado. ${x.pendiente > 0.005 ? `Queda ${eur(x.pendiente)}.` : "¡Cobrado entero!"} Avisado en Telegram.`);
+      setCobrar(null);
       recargar();
     } catch (e) {
       avisar((e as Error).message, "error");
@@ -49,137 +138,314 @@ export default function Ingresos() {
       setEnviando(false);
     }
   };
+  const guardarNuevo = async () => {
+    if (!nuevo) return;
+    setEnviando(true);
+    try {
+      const { cobroInicial, fechaCobro, ...rest } = nuevo;
+      const x = await llamar<{ id: string }>("/api/ingresos", "POST", { ...rest, cobroInicial: cobroInicial || undefined, fechaCobro });
+      avisar(`Creado #${x.id} · avisado en Telegram`);
+      setNuevo(null);
+      recargar();
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    } finally {
+      setEnviando(false);
+    }
+  };
+  const abrirCobro = (i: Ingreso) => setCobrar({ i, importe: "", fecha: hoyISO(), metodo: "transferencia", notas: "" });
 
   return (
     <div>
-      <Titulo titulo="Ingresos" sub="Taller y Flownexion salen de sus hojas (con sus fórmulas). Los cobros que marques aquí los ve también /cobros del bot." />
+      <Titulo
+        titulo="Ingresos"
+        sub="Lo que te toca cobrar del taller y de Flownexion, pago a pago. Lo mismo que ves aquí lo ve el bot (/cobros, /cobrado)."
+        extra={<Boton tipo="primario" onClick={() => setNuevo(formVacio(vista))}>+ Nuevo ingreso</Boton>}
+      />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        <Kpi etiqueta="Te deben en total" valor={eur0(pendienteTotal)} sub={`${t.resumen.nPendientes + f.resumen.nPendientes} líneas`} tono={pendienteTotal > 0 ? "aviso" : "bien"} />
-        <Kpi etiqueta="Taller · tu parte (10 %)" valor={eur0(t.resumen.miParte)} sub={`cobrado ${eur0(t.resumen.cobrado)}`} />
-        <Kpi etiqueta="Flownexion · lo que ganas" valor={eur0(f.resumen.ganoApps + f.resumen.mantenimientoCobrado)} sub={`apps ${eur0(f.resumen.ganoApps)} + mto ${eur0(f.resumen.mantenimientoCobrado)}`} />
-        <Kpi etiqueta="Otros ingresos (GestorIA)" valor={eur0(otrosTotal)} sub={`${datos.otros.length} apuntes tipo «ingreso»`} />
+      <div className="mb-5 flex gap-1.5 overflow-x-auto scroll-fino" role="tablist">
+        {(["Todo", "Taller", "Flownexion", ...(datos.resumen.Otro.n ? ["Otro"] : [])] as Vista[]).map((v) => (
+          <button key={v} role="tab" aria-selected={vista === v} onClick={() => setVista(v)}
+            className={`flex min-w-36 flex-col rounded-2xl border px-4 py-2.5 text-left transition ${vista === v ? "border-acento bg-acento-suave" : "border-borde bg-card hover:bg-card-2"}`}>
+            <span className={`text-sm font-semibold ${vista === v ? "text-acento" : "text-txt"}`}>{ICO[v]} {v === "Todo" ? "Todo" : v}</span>
+            <span className="text-xs tabular text-txt-3">te deben {eur0(datos.resumen[v].pendiente)}</span>
+          </button>
+        ))}
       </div>
 
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <Kpi etiqueta="Te deben" valor={eur0(r.pendiente)} sub={`${r.nPendientes} por cobrar${r.nVencidos ? ` · ${r.nVencidos} vencidos` : ""}`} tono={r.pendiente > 0 ? "aviso" : "bien"} />
+        <Kpi etiqueta="Cobrado" valor={eur0(r.cobrado)} sub={`${r.facturado ? Math.round((r.cobrado / r.facturado) * 100) : 0} % de lo tuyo`} tono="bien" />
+        <Kpi etiqueta="Total tuyo" valor={eur0(r.facturado)} sub={`${r.n} trabajos y proyectos`} />
+        <Kpi etiqueta="Pagos a medias" valor={r.nParciales} sub={r.nParciales ? `ya cobrado ${eur0(parcialImporte)} de ellos` : "ninguno"} />
+      </div>
+
+      {(sinFecha > 0 || r.nSinPrecio > 0 || cobrosSinFecha > 0) && (
+        <div className="mb-4 rounded-xl border border-aviso/50 bg-card px-4 py-3 text-sm">
+          <b>Para que las cuentas por mes salgan bien:</b>{" "}
+          {sinFecha > 0 && <button className="underline" onClick={() => setFiltro("sinfecha")}>{sinFecha} sin fecha del trabajo</button>}
+          {sinFecha > 0 && (r.nSinPrecio > 0 || cobrosSinFecha > 0) && " · "}
+          {r.nSinPrecio > 0 && <button className="underline" onClick={() => setFiltro("sinprecio")}>{r.nSinPrecio} sin precio</button>}
+          {r.nSinPrecio > 0 && cobrosSinFecha > 0 && " · "}
+          {cobrosSinFecha > 0 && <span>{cobrosSinFecha} pagos sin fecha (vienen de la hoja antigua: ábrelos y pon cuándo cobraste)</span>}
+          . Toca «＋ poner fecha» en la propia línea.
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-3 mb-4">
-        <Tarjeta titulo="Taller: cobrado frente a pendiente" sub={`Facturado total ${eur(t.resumen.facturado)} · tu parte ${eur(t.resumen.miParte)}`} className="lg:col-span-2">
-          <BarraPartes partes={[{ nombre: "Cobrado", valor: t.resumen.cobrado, color: c.s3 }, { nombre: "Pendiente", valor: t.resumen.pendiente, color: c.s4 }]} />
-          <div className="mt-4">
-            <div className="mb-2 text-xs font-medium text-txt-2">Lo que más te deben (taller)</div>
-            <Ranking
-              items={t.trabajos.filter((x) => x.falta > 0.005).sort((a, b) => b.falta - a.falta).slice(0, 8).map((x) => ({ nombre: `${x.trabajo}`, valor: x.falta, clave: String(x.fila), sub: `OCC ${x.occ || "—"} · pedido ${x.pedido || "—"} · #T${x.fila}` }))}
-              vacio="No te deben nada del taller 🎉"
-            />
-          </div>
-        </Tarjeta>
-        <Tarjeta titulo="Flownexion" sub={f.reparto}>
-          <ul className="grid gap-3">
-            {f.proyectos.map((p) => (
-              <li key={p.fila} className="rounded-xl border border-borde p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-semibold">{p.cliente || p.proyecto}</div>
-                    <div className="text-[11px] text-txt-3">{p.proyecto} · {p.totalProyecto}</div>
-                  </div>
-                  <span className={`tabular text-sm font-semibold ${p.falta > 0 ? "text-aviso-txt" : "text-bien-txt"}`}>{p.falta > 0 ? `debe ${eur0(p.falta)}` : "al día"}</span>
+        <Tarjeta titulo="Cobrado frente a pendiente" sub={`${vista === "Todo" ? "Taller + Flownexion" : vista} · solo lo que tiene precio`}>
+          <BarraPartes partes={[{ nombre: "Cobrado", valor: r.cobrado, color: c.bien }, { nombre: "Pendiente", valor: r.pendiente, color: c.s5 }]} />
+          {vista === "Todo" && (
+            <div className="mt-4 grid gap-3 border-t border-borde pt-3">
+              {(["Taller", "Flownexion"] as const).map((n) => (
+                <div key={n}>
+                  <div className="flex justify-between text-xs"><span className="text-txt-2">{ICO[n]} {n}</span><span className="tabular text-txt">{eur0(datos.resumen[n].cobrado)} / {eur0(datos.resumen[n].facturado)}</span></div>
+                  <div className="mt-1 h-2 rounded-full bg-card-2"><div className="h-2 rounded-full bg-bien" style={{ width: `${datos.resumen[n].facturado ? (datos.resumen[n].cobrado / datos.resumen[n].facturado) * 100 : 0}%` }} /></div>
                 </div>
-                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                  <dt className="text-txt-3">Ganas por la app</dt><dd className="tabular text-right">{eur(p.ganoApp)}</dd>
-                  <dt className="text-txt-3">Mantenimiento</dt><dd className="text-right">{p.ganoMto || "—"}</dd>
-                  <dt className="text-txt-3">Pago inicial</dt><dd className="tabular text-right">{p.pagoInicial ? eur(p.pagoInicial) : "—"}</dd>
-                  <dt className="text-txt-3">Segundo pago</dt><dd className="tabular text-right">{p.segundoPago ? eur(p.segundoPago) : "pendiente"}</dd>
-                  <dt className="text-txt-3">Meses de mto.</dt><dd className="text-right">{p.mantenimientos || "—"}</dd>
-                  <dt className="text-txt-3">Total mto.</dt><dd className="tabular text-right">{p.totalMto ? eur(p.totalMto) : "—"}</dd>
-                </dl>
-                {p.notas.length > 0 && <p className="mt-2 text-[11px] text-txt-3">📝 {p.notas.join(" · ")}</p>}
-                {p.falta > 0 && (
-                  <Boton pequeno className="mt-2" onClick={() => (setImporte(""), setCobro({ hoja: "flownexion", fila: p.fila, esperado: p.celda, falta: p.falta, nombre: p.cliente || p.proyecto }))}>
-                    Marcar cobro
-                  </Boton>
-                )}
-              </li>
-            ))}
-          </ul>
-          {f.notasSueltas.length > 0 && <p className="mt-3 text-[11px] text-txt-3">Notas de la hoja: {f.notasSueltas.join(" · ")}</p>}
+              ))}
+            </div>
+          )}
+        </Tarjeta>
+        <Tarjeta titulo="¿Quién te debe?" sub="Pendiente por cliente">
+          {pendientePorCliente.size ? (
+            <Donut alto={170} centro={{ valor: eur0(r.pendiente), etiqueta: "pendiente" }} items={[...pendientePorCliente.entries()].map(([k, v], n) => ({ nombre: k, valor: v, color: colorSerie(c, n % 8) }))} />
+          ) : <Vacio>Nadie te debe nada 🎉</Vacio>}
+        </Tarjeta>
+        <Tarjeta titulo="Cobros por mes" sub="Según la fecha de cada pago (los que no tienen fecha no salen)">
+          {hayCobrosFechados ? (
+            <BarrasMes datos={serieCobros} series={[{ clave: "Taller", color: 0 }, { clave: "Flownexion", color: 3 }, { clave: "Otro", color: null }]} alto={210} />
+          ) : <Vacio>Aún no hay pagos con fecha. Cuando apuntes un cobro (o le pongas fecha a los antiguos), aparecen aquí.</Vacio>}
         </Tarjeta>
       </div>
 
       <Tarjeta
-        titulo={`Trabajos del taller (${trabajos.length})`}
-        sub={`${t.resumen.nSinPrecio} trabajos sin precio todavía: no cuentan en los totales hasta que los valores.`}
-        extra={
-          <div className="flex gap-1.5 overflow-x-auto">
-            {([["todo", "Todos"], ["pendiente", "Por cobrar"], ["sinprecio", "Sin precio"], ["cobrado", "Cobrados"]] as const).map(([k, tx]) => (
-              <Chip key={k} activo={vista === k} onClick={() => setVista(k)}>{tx}</Chip>
-            ))}
-          </div>
-        }
+        className="mb-4"
+        titulo={`${lista.length} ${filtro === "porcobrar" ? "por cobrar" : "líneas"}`}
+        sub="Toca una línea para ver sus pagos, editarla o borrarla"
+        extra={<input aria-label="Buscar" className={inputCls + " !w-36 !py-1 text-xs"} placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} />}
       >
-        {trabajos.length ? (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {([["porcobrar", "Por cobrar"], ["parcial", "A medias"], ["cobrado", "Cobrados"], ["sinprecio", "Sin precio"], ["sinfecha", "Sin fecha"], ["todos", "Todos"]] as const).map(([k, t]) => (
+            <Chip key={k} activo={filtro === k} onClick={() => setFiltro(k)}>{t}</Chip>
+          ))}
+        </div>
+        {lista.length ? (
           <div className="overflow-x-auto scroll-fino -mx-1">
-            <table className="w-full text-sm min-w-[760px]">
+            <table className="w-full text-sm min-w-[860px]">
               <thead>
                 <tr className="text-left text-xs text-txt-3">
-                  <th className="px-1 py-1.5">#</th><th className="px-1">OCC / pedido</th><th className="px-1">Trabajo</th>
-                  <th className="px-1 text-right">Uds.</th><th className="px-1 text-right">Total</th><th className="px-1 text-right">Tu parte</th>
-                  <th className="px-1 text-right">Pagado</th><th className="px-1 text-right">Falta</th><th className="px-1" />
+                  <th className="px-1 py-1.5 font-medium">#</th>
+                  <th className="px-1 font-medium">Fecha trabajo</th>
+                  <th className="px-1 font-medium">Trabajo / cliente</th>
+                  <th className="px-1 text-right font-medium">Tuyo</th>
+                  <th className="px-1 text-right font-medium">Cobrado</th>
+                  <th className="px-1 text-right font-medium">Falta</th>
+                  <th className="px-1 font-medium">Último pago</th>
+                  <th className="px-1 font-medium">Estado</th>
+                  <th className="px-1" />
                 </tr>
               </thead>
               <tbody>
-                {trabajos.map((x) => (
-                  <tr key={x.fila} className="border-t border-borde">
-                    <td className="px-1 py-2 text-xs text-txt-3">T{x.fila}</td>
-                    <td className="px-1 py-2 text-xs text-txt-2 whitespace-nowrap">{x.occ || "—"}<br />{x.pedido}</td>
+                {lista.map((x) => (
+                  <tr key={x.id} className="border-t border-borde hover:bg-card-2 cursor-pointer align-top" onClick={() => setFicha(x.id)}>
+                    <td className="px-1 py-2 text-xs text-txt-3 whitespace-nowrap">{ICO[x.negocio]} {x.id}</td>
+                    <td className="px-1 py-2 text-xs whitespace-nowrap"><FechaEditable valor={x.fecha} etiqueta="fecha del trabajo" guardar={(f) => guardarCampo(x.id, { fecha: f }, "Fecha del trabajo guardada")} /></td>
                     <td className="px-1 py-2">
-                      <div className="font-medium">{x.trabajo}</div>
-                      <div className="text-[11px] text-txt-3">{x.recibido ? "material recibido" : ""}{x.marca ? ` · marca «${x.marca}»` : ""}</div>
+                      <div className="font-medium">{x.concepto}</div>
+                      <div className="text-[11px] text-txt-3">{[x.cliente, x.referencia, x.totalTrabajo && x.porcentaje ? `${x.porcentaje} % de ${eur(x.totalTrabajo)}` : ""].filter(Boolean).join(" · ")}</div>
+                      <Progreso i={x} />
                     </td>
-                    <td className="px-1 py-2 text-right tabular">{x.unidades || "—"}</td>
-                    <td className="px-1 py-2 text-right tabular">{x.sinPrecio ? <span className="text-txt-3">sin precio</span> : eur(x.total)}</td>
-                    <td className="px-1 py-2 text-right tabular">{x.sinPrecio ? "—" : eur(x.miParte)}</td>
-                    <td className="px-1 py-2 text-right tabular text-bien-txt">{x.pagado ? eur(x.pagado) : "—"}</td>
-                    <td className={`px-1 py-2 text-right tabular font-semibold ${x.falta > 0.005 ? "text-aviso-txt" : "text-txt-3"}`}>{x.sinPrecio ? "—" : eur(x.falta)}</td>
-                    <td className="px-1 py-2 text-right">
-                      {x.falta > 0.005 && <Boton pequeno onClick={() => (setImporte(""), setCobro({ hoja: "taller", fila: x.fila, esperado: x.trabajo, falta: x.falta, nombre: x.trabajo }))}>Cobrado</Boton>}
+                    <td className="px-1 py-2 text-right tabular">{x.importe === null ? <span className="text-txt-3">—</span> : eur(x.importe)}</td>
+                    <td className="px-1 py-2 text-right tabular text-bien-txt">{x.cobrado ? eur(x.cobrado) : "—"}</td>
+                    <td className={`px-1 py-2 text-right tabular font-semibold ${x.pendiente > 0.005 ? "text-aviso-txt" : "text-txt-3"}`}>{x.importe === null ? "—" : eur(x.pendiente)}</td>
+                    <td className="px-1 py-2 text-xs text-txt-2 whitespace-nowrap">{x.cobros.length ? (x.ultimoCobro ? isoAEs(x.ultimoCobro) : <span className="text-aviso-txt">sin fecha</span>) : "—"}{x.cobros.length > 1 && <span className="text-txt-3"> · {x.cobros.length} pagos</span>}</td>
+                    <td className="px-1 py-2"><Estado e={x.estado} />{x.vencido && <div className="mt-0.5 text-[10px] font-semibold text-alerta-txt">vencido</div>}</td>
+                    <td className="px-1 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                      {x.pendiente > 0.005 && <Boton pequeno onClick={() => abrirCobro(x)}>Cobrar</Boton>}
+                      {x.estado === "sin precio" && <Boton pequeno tipo="fantasma" onClick={() => setFicha(x.id)}>Poner precio</Boton>}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        ) : <Vacio>Nada en esta vista.</Vacio>}
+        ) : <Vacio>Nada con este filtro.</Vacio>}
       </Tarjeta>
 
-      {datos.otros.length > 0 && (
-        <Tarjeta className="mt-4" titulo="Otros ingresos apuntados en GestorIA">
-          <ul className="divide-y divide-borde">
-            {datos.otros.map((m) => (
-              <li key={m.fila} className="flex justify-between py-2 text-sm">
-                <span>{isoAEs(m.fecha)} · {m.proveedor} <span className="text-txt-3">{m.concepto}</span></span>
-                <span className="tabular font-medium text-bien-txt">{eur(m.total)}</span>
-              </li>
-            ))}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Tarjeta titulo="🔁 Ingresos que se repiten" sub="Mantenimientos mensuales: se crea la línea de cada mes sola, para que no se te olvide cobrarla">
+          <Programados lista={datos.programados} tipo="ingreso" alCambiar={recargar} />
+        </Tarjeta>
+        <Tarjeta titulo="Cómo funciona">
+          <ul className="grid gap-1.5 text-sm text-txt-2">
+            <li>• <b>Tuyo</b> es lo que te corresponde: en el taller el 10 % del trabajo; en Flownexion tu parte del proyecto o del mantenimiento.</li>
+            <li>• Cada pago que entra es una línea con su <b>fecha</b>: puedes cobrar a medias tantas veces como haga falta. <b>Falta</b> = tuyo − pagos.</li>
+            <li>• La <b>fecha del trabajo</b> dice cuándo se generó; la de cada pago, cuándo cobraste. Las dos se cambian tocándolas.</li>
+            <li>• Por Telegram: <code>/cobros</code>, <code>/cobros taller</code>, <code>/cobrado #I012 150</code>, o dile al asistente «apunta que el taller me ha pagado 150 de los filtros».</li>
           </ul>
         </Tarjeta>
-      )}
+      </div>
 
-      <Modal abierto={!!cobro} cerrar={() => setCobro(null)} titulo="Marcar como cobrado" ancho="max-w-md">
-        {cobro && (
+      {/* Ficha del ingreso: datos editables + historial de pagos */}
+      <Modal abierto={!!sel} cerrar={() => setFicha(null)} titulo={sel ? `#${sel.id} · ${sel.concepto}` : ""} ancho="max-w-3xl">
+        {sel && <Ficha key={sel.id + sel.cobros.length + sel.cobrado} i={sel} guardar={guardarCampo} guardarCobro={guardarCobroCampo} cobrar={() => abrirCobro(sel)} alBorrar={() => (setFicha(null), recargar())} recargar={recargar} />}
+      </Modal>
+
+      <Modal abierto={!!cobrar} cerrar={() => setCobrar(null)} titulo="Apuntar un cobro" ancho="max-w-md">
+        {cobrar && (
           <div className="grid gap-3">
-            <p className="text-sm">
-              <b>{cobro.nombre}</b> — pendiente <b className="tabular">{eur(cobro.falta)}</b>
-            </p>
-            <Campo etiqueta="Importe cobrado" ayuda="Vacío = lo cobras entero. Si es un pago a cuenta, pon la cantidad.">
-              <input className={inputCls + " tabular"} inputMode="decimal" value={importe} onChange={(e) => setImporte(e.target.value)} placeholder={eur(cobro.falta)} />
+            <div className="rounded-xl bg-card-2 p-3 text-sm">
+              <div className="font-semibold">{cobrar.i.concepto}</div>
+              <div className="text-xs text-txt-3">{cobrar.i.negocio}{cobrar.i.cliente ? " · " + cobrar.i.cliente : ""}</div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+                <div><div className="text-txt-3">Tuyo</div><div className="tabular font-semibold">{eur(cobrar.i.importe || 0)}</div></div>
+                <div><div className="text-txt-3">Ya cobrado</div><div className="tabular font-semibold text-bien-txt">{eur(cobrar.i.cobrado)}</div></div>
+                <div><div className="text-txt-3">Falta</div><div className="tabular font-semibold text-aviso-txt">{eur(cobrar.i.pendiente)}</div></div>
+              </div>
+            </div>
+            <Campo etiqueta="¿Cuánto te han pagado?" ayuda="Vacío = lo que falta entero. Si es un pago a cuenta, pon la cantidad.">
+              <input className={inputCls + " tabular"} inputMode="decimal" autoFocus value={cobrar.importe} onChange={(e) => setCobrar({ ...cobrar, importe: e.target.value })} placeholder={eur(cobrar.i.pendiente)} />
             </Campo>
-            <p className="text-xs text-txt-3">Escribo en la columna «pagado» solo si la fórmula del pendiente depende de ella; si no, te explico qué celda tocar. Después releo la hoja para confirmar que ha bajado.</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[0.25, 0.5, 1].map((f) => <Chip key={f} onClick={() => setCobrar({ ...cobrar, importe: String(Math.round(cobrar.i.pendiente * f * 100) / 100) })}>{f === 1 ? "Todo" : `${f * 100} %`}</Chip>)}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Campo etiqueta="Fecha del pago"><input type="date" className={inputCls} value={cobrar.fecha} onChange={(e) => setCobrar({ ...cobrar, fecha: e.target.value })} /></Campo>
+              <Campo etiqueta="Cómo"><select className={inputCls} value={cobrar.metodo} onChange={(e) => setCobrar({ ...cobrar, metodo: e.target.value })}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></Campo>
+            </div>
+            <Campo etiqueta="Nota (opcional)"><input className={inputCls} value={cobrar.notas} onChange={(e) => setCobrar({ ...cobrar, notas: e.target.value })} /></Campo>
+            {cobrar.importe && num(cobrar.importe) < cobrar.i.pendiente - 0.005 && <p className="text-xs text-txt-2">Quedarán <b className="tabular">{eur(cobrar.i.pendiente - num(cobrar.importe))}</b> pendientes.</p>}
             <div className="flex justify-end gap-2">
-              <Boton onClick={() => setCobro(null)}>Cancelar</Boton>
+              <Boton onClick={() => setCobrar(null)}>Cancelar</Boton>
               <Boton tipo="primario" disabled={enviando} onClick={confirmarCobro}>{enviando ? "Apuntando…" : "Confirmar cobro"}</Boton>
             </div>
           </div>
         )}
       </Modal>
+
+      <Modal abierto={!!nuevo} cerrar={() => setNuevo(null)} titulo="Nuevo ingreso" ancho="max-w-2xl">
+        {nuevo && <FormIngreso f={nuevo} set={setNuevo} nuevo />}
+        {nuevo && (
+          <div className="mt-4 flex justify-end gap-2">
+            <Boton onClick={() => setNuevo(null)}>Cancelar</Boton>
+            <Boton tipo="primario" disabled={enviando || !nuevo.concepto.trim()} onClick={guardarNuevo}>{enviando ? "Guardando…" : "Crear"}</Boton>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function FormIngreso({ f, set, nuevo = false }: { f: FormI; set: (f: FormI) => void; nuevo?: boolean }) {
+  const u = (k: keyof FormI, v: string) => set({ ...f, [k]: v });
+  const total = f.totalTrabajo ? num(f.totalTrabajo) : f.unidades && f.precioUnit ? num(f.unidades) * num(f.precioUnit) : 0;
+  const calc = !f.importe && total ? (f.porcentaje ? (total * num(f.porcentaje)) / 100 : total) : null;
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <Campo etiqueta="Negocio"><select className={inputCls} value={f.negocio} onChange={(e) => set({ ...f, negocio: e.target.value, porcentaje: e.target.value === "Taller" ? "10" : f.porcentaje })}>{NEGOCIOS.map((n) => <option key={n}>{n}</option>)}</select></Campo>
+      <Campo etiqueta="Tipo"><select className={inputCls} value={f.tipo} onChange={(e) => u("tipo", e.target.value)}>{TIPOS_INGRESO.map((n) => <option key={n}>{n}</option>)}</select></Campo>
+      <Campo etiqueta="Fecha del trabajo" ayuda="Cuándo se generó"><input type="date" className={inputCls} value={f.fecha} onChange={(e) => u("fecha", e.target.value)} /></Campo>
+      <Campo etiqueta="Cobrar antes de" ayuda="Opcional"><input type="date" className={inputCls} value={f.vencimiento} onChange={(e) => u("vencimiento", e.target.value)} /></Campo>
+      <Campo etiqueta="Concepto / trabajo" className="col-span-2"><input className={inputCls} value={f.concepto} onChange={(e) => u("concepto", e.target.value)} placeholder={f.negocio === "Taller" ? "Filtros tamiz regaliz" : "App de reservas"} /></Campo>
+      <Campo etiqueta="Cliente"><input className={inputCls} value={f.cliente} onChange={(e) => u("cliente", e.target.value)} /></Campo>
+      <Campo etiqueta="Referencia" ayuda="OCC, pedido, factura…"><input className={inputCls} value={f.referencia} onChange={(e) => u("referencia", e.target.value)} /></Campo>
+      <Campo etiqueta="Unidades"><input inputMode="decimal" className={inputCls + " tabular"} value={f.unidades} onChange={(e) => u("unidades", e.target.value)} /></Campo>
+      <Campo etiqueta="Precio unidad"><input inputMode="decimal" className={inputCls + " tabular"} value={f.precioUnit} onChange={(e) => u("precioUnit", e.target.value)} /></Campo>
+      <Campo etiqueta="Total del trabajo" ayuda="Vacío = uds × precio"><input inputMode="decimal" className={inputCls + " tabular"} value={f.totalTrabajo} onChange={(e) => u("totalTrabajo", e.target.value)} placeholder={total ? String(total) : ""} /></Campo>
+      <Campo etiqueta="Tu %"><input inputMode="decimal" className={inputCls + " tabular"} value={f.porcentaje} onChange={(e) => u("porcentaje", e.target.value)} /></Campo>
+      <Campo etiqueta="Lo tuyo (€)" ayuda={calc !== null ? `Vacío = ${eur(calc)} calculado` : "Vacío = sin precio todavía"} className="col-span-2">
+        <input inputMode="decimal" className={inputCls + " tabular"} value={f.importe} onChange={(e) => u("importe", e.target.value)} placeholder={calc !== null ? String(Math.round(calc * 100) / 100) : ""} />
+      </Campo>
+      {!nuevo && (
+        <Campo etiqueta="Estado" className="col-span-2"><select className={inputCls} value={/anulad/i.test(f.estado) ? "anulado" : ""} onChange={(e) => u("estado", e.target.value)}><option value="">Normal (se calcula con los pagos)</option><option value="anulado">Anulado (no cuenta)</option></select></Campo>
+      )}
+      {nuevo && (
+        <>
+          <Campo etiqueta="¿Ya te han pagado algo?" ayuda="Opcional: primer pago" className="col-span-2"><input inputMode="decimal" className={inputCls + " tabular"} value={f.cobroInicial} onChange={(e) => u("cobroInicial", e.target.value)} /></Campo>
+          <Campo etiqueta="Fecha de ese pago" className="col-span-2"><input type="date" className={inputCls} value={f.fechaCobro} onChange={(e) => u("fechaCobro", e.target.value)} /></Campo>
+        </>
+      )}
+      <Campo etiqueta="Notas" className="col-span-2 sm:col-span-4"><textarea rows={2} className={inputCls} value={f.notas} onChange={(e) => u("notas", e.target.value)} /></Campo>
+    </div>
+  );
+}
+
+function Ficha({ i, guardar, guardarCobro, cobrar, alBorrar, recargar }: {
+  i: Ingreso; guardar: (id: string, c: Record<string, unknown>, ok?: string) => Promise<void>; guardarCobro: (id: string, c: Record<string, unknown>) => Promise<void>;
+  cobrar: () => void; alBorrar: () => void; recargar: () => void;
+}) {
+  const [f, setF] = useState<FormI>(aForm(i));
+  const [g, setG] = useState(false);
+  const cambios = () => {
+    const o = aForm(i);
+    const d: Record<string, string> = {};
+    (Object.keys(f) as (keyof FormI)[]).forEach((k) => { if (!["cobroInicial", "fechaCobro"].includes(k) && f[k] !== o[k]) d[k] = f[k]; });
+    return d;
+  };
+  const borrar = async () => {
+    if (!confirm(`¿Borrar #${i.id} «${i.concepto}»${i.cobros.length ? ` y sus ${i.cobros.length} pagos` : ""}? Se borra también para Telegram.`)) return;
+    try {
+      await llamar(`/api/ingresos?id=${i.id}`, "DELETE");
+      avisar("Borrado");
+      alBorrar();
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    }
+  };
+  const borrarCobro = async (k: Cobro) => {
+    if (!confirm(`¿Quitar el pago de ${eur(k.importe)}${k.fecha ? " del " + isoAEs(k.fecha) : ""}?`)) return;
+    try {
+      await llamar(`/api/ingresos/cobros?id=${k.id}`, "DELETE");
+      avisar("Pago quitado");
+      recargar();
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    }
+  };
+  return (
+    <div className="grid gap-5">
+      <div className="grid grid-cols-3 gap-2 rounded-xl bg-card-2 p-3 text-center">
+        <div><div className="text-xs text-txt-3">Tuyo</div><div className="text-lg font-semibold tabular">{i.importe === null ? "—" : eur(i.importe)}</div></div>
+        <div><div className="text-xs text-txt-3">Cobrado</div><div className="text-lg font-semibold tabular text-bien-txt">{eur(i.cobrado)}</div></div>
+        <div><div className="text-xs text-txt-3">Falta</div><div className="text-lg font-semibold tabular text-aviso-txt">{eur(i.pendiente)}</div></div>
+        <div className="col-span-3"><Progreso i={i} /></div>
+      </div>
+
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h4 className="text-sm font-semibold">Pagos ({i.cobros.length})</h4>
+          {i.pendiente > 0.005 && <Boton pequeno tipo="primario" onClick={cobrar}>+ Apuntar pago</Boton>}
+        </div>
+        {i.cobros.length ? (
+          <ul className="divide-y divide-borde rounded-xl border border-borde">
+            {i.cobros.map((k, n) => (
+              <li key={k.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span className="flex items-center gap-2">
+                  <span className="text-xs text-txt-3">{n + 1}.</span>
+                  <FechaEditable valor={k.fecha} etiqueta="fecha del pago" guardar={(v) => guardarCobro(k.id, { fecha: v })} />
+                  <span className="text-xs text-txt-3">{[k.metodo, k.notas].filter(Boolean).join(" · ")}</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="tabular font-semibold text-bien-txt">{eur(k.importe)}</span>
+                  <button className="text-xs text-txt-3 hover:text-alerta-txt" onClick={() => borrarCobro(k)} aria-label="Quitar pago">🗑</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : <Vacio>Todavía no te han pagado nada de esto.</Vacio>}
+      </section>
+
+      <section>
+        <h4 className="mb-2 text-sm font-semibold">Datos</h4>
+        <FormIngreso f={f} set={setF} />
+        <div className="mt-4 flex flex-wrap justify-between gap-2">
+          <Boton tipo="peligro" onClick={borrar}>Borrar</Boton>
+          <Boton tipo="primario" disabled={g || !Object.keys(cambios()).length} onClick={async () => { setG(true); try { await guardar(i.id, cambios(), "Cambios guardados"); } catch { /* avisado */ } finally { setG(false); } }}>
+            {g ? "Guardando…" : "Guardar cambios"}
+          </Boton>
+        </div>
+        {i.origen && <p className="mt-2 text-[11px] text-txt-3">Origen: {i.origen}</p>}
+      </section>
     </div>
   );
 }

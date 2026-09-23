@@ -12,13 +12,26 @@ export function useApi<T>(url: string | null) {
     let vivo = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- marca de carga al cambiar la URL o recargar
     setCargando(true);
-    fetch(url, { cache: "no-store" })
-      .then(async (r) => {
-        const j = await r.json().catch(() => ({ error: "Respuesta ilegible" }));
-        if (r.status === 401) location.href = "/login";
-        if (!r.ok) throw new Error(j.error || "Error " + r.status);
-        return j as T;
-      })
+    // "Failed to fetch" = corte de red o el servidor arrancando (p.ej. justo tras un despliegue):
+    // se reintenta solo dos veces antes de enseñar el error.
+    const pedir = async (intento: number): Promise<T> => {
+      let r: Response;
+      try {
+        r = await fetch(url, { cache: "no-store" });
+      } catch {
+        if (intento < 2) {
+          await new Promise((ok) => setTimeout(ok, 1200 * (intento + 1)));
+          return pedir(intento + 1);
+        }
+        throw new Error("No hay conexión con el servidor (¿sin cobertura o recién actualizada la app?). Dale a Reintentar.");
+      }
+      const j = await r.json().catch(() => ({ error: "Respuesta ilegible" }));
+      if (r.status === 401) location.href = "/login";
+      if (r.status >= 502 && intento < 1) return pedir(intento + 1);
+      if (!r.ok) throw new Error(j.error || "Error " + r.status);
+      return j as T;
+    };
+    pedir(0)
       .then((j) => vivo && (setDatos(j), setError("")))
       .catch((e) => vivo && setError(e.message))
       .finally(() => vivo && setCargando(false));
@@ -31,11 +44,16 @@ export function useApi<T>(url: string | null) {
 }
 
 export async function llamar<T = Record<string, unknown>>(url: string, method: string, body?: unknown): Promise<T> {
-  const r = await fetch(url, {
-    method,
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let r: Response;
+  try {
+    r = await fetch(url, {
+      method,
+      headers: body ? { "content-type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error("No hay conexión con el servidor. Comprueba la cobertura, recarga para ver si se guardó y repite si no está.");
+  }
   const j = await r.json().catch(() => ({ error: "Respuesta ilegible del servidor" }));
   if (r.status === 401) location.href = "/login";
   if (!r.ok) throw new Error(j.error || "Error " + r.status);
