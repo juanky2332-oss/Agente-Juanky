@@ -12,7 +12,7 @@ export const maxDuration = 60;
 function ficha(i: Ingreso) {
   const L = [
     `<code>#${i.id}</code> <b>${escHtml(i.concepto)}</b>`,
-    `${i.negocio}${i.cliente ? " · " + escHtml(i.cliente) : ""}${i.referencia ? " · " + escHtml(i.referencia) : ""}`,
+    `Te paga: <b>${i.negocio === "Flownexion" ? "💻 Flownexion" : i.negocio === "Taller" ? "🔧 el taller, directo" : "otros"}</b>${i.negocio === "Flownexion" && i.cliente ? " · " + escHtml(i.cliente) : ""}${i.referencia ? " · " + escHtml(i.referencia) : ""}`,
     `Fecha del trabajo: ${i.fecha ? isoAEs(i.fecha) : "⚠️ sin fecha"}`,
     i.importe === null ? "Importe: sin precio todavía" : `Importe: <b>${eur(i.importe)}</b>${i.totalTrabajo && i.porcentaje ? ` (${i.porcentaje} % de ${eur(i.totalTrabajo)})` : ""}`,
     `Te han pagado a ti: ${eur(i.cobrado)} · Te deben: <b>${eur(i.pendiente)}</b> · ${i.estado === "retenido" ? "lo tiene Flownexion" : i.estado}${i.vencido ? " 🔴 vencido" : ""}`,

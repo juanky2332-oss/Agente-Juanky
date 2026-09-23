@@ -72,15 +72,20 @@ export const COLS_COB = { id: "ID", ingreso: "INGRESO", fecha: "FECHA", importe:
 
 export const aDestino = (v: unknown): Destino => (/flow|cliente/i.test(String(v || "")) ? "flownexion" : "yo");
 
+/** Nombre del pagador para pantallas y Telegram. NEGOCIO en la hoja = quién te paga. */
+export const PAGADOR: Record<Negocio, string> = { Taller: "Taller (te paga directo)", Flownexion: "Flownexion", Otro: "Otros" };
+
 /**
- * De dónde viene el dinero. Dos canales que no se mezclan:
- *  - Flownexion (el cliente paga a Flownexion y Flownexion a ti), uno por proyecto.
- *  - Directo del taller: tus comisiones de trabajos y, desde octubre de 2026, el mantenimiento de la app.
+ * De dónde viene el dinero. DOS PAGADORES que no se mezclan:
+ *  - TALLER: te paga directo a ti. Tus comisiones (10 % de cada trabajo) y, desde octubre de
+ *    2026, el mantenimiento de la app (75 €/mes íntegros).
+ *  - FLOWNEXION: el cliente del proyecto paga a Flownexion y después Flownexion te paga tu %.
+ *    Un grupo por proyecto ("Proyecto 1 · App del taller", "Proyecto 2 · App de Rodamientos").
+ *    Que el cliente del Proyecto 1 sea el taller NO lo convierte en pago del taller.
  */
 export function fuenteDe(i: Pick<Ingreso, "negocio" | "tipo" | "cliente">): string {
-  const proy = (i.cliente.match(/proyecto\s*\d+/i) || [])[0];
-  if (i.negocio === "Flownexion") return `Flownexion · ${i.cliente || "sin cliente"}`;
-  if (i.negocio === "Taller") return /trabajo/i.test(i.tipo) ? "Taller · comisiones de trabajos" : `Taller directo · ${i.tipo || "otro"}${proy ? ` app (${proy.replace(/^p/, "P")})` : ""}`;
+  if (i.negocio === "Flownexion") return `Flownexion · ${i.cliente || "sin proyecto"}`;
+  if (i.negocio === "Taller") return /trabajo/i.test(i.tipo) ? "Taller · comisiones 10 % de trabajos" : /manten/i.test(i.tipo) ? "Taller · mantenimiento de la app" : "Taller · otros";
   return "Otros";
 }
 
@@ -210,7 +215,7 @@ export function resumir(ings: Ingreso[], negocio: Negocio | "Todo" = "Todo"): Re
 export function porFuente(ings: Ingreso[]) {
   const m = new Map<string, Ingreso[]>();
   for (const i of ings) if (i.estado !== "anulado") m.set(i.fuente, [...(m.get(i.fuente) || []), i]);
-  const orden = (f: string) => (f.startsWith("Taller · ") ? 0 : f.startsWith("Taller directo") ? 1 : f.startsWith("Flownexion") ? 2 : 3);
+  const orden = (f: string) => (f.startsWith("Taller · comisiones") ? 0 : f.startsWith("Taller") ? 1 : f.startsWith("Flownexion") ? 2 : 3);
   return [...m.entries()]
     .map(([fuente, xs]) => ({ ...resumir(xs), fuente, negocio: xs[0].negocio }))
     .sort((a, b) => orden(a.fuente) - orden(b.fuente) || a.fuente.localeCompare(b.fuente));

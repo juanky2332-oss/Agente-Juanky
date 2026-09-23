@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useApi, Tarjeta, Kpi, Boton, Cargando, FalloCarga, Titulo, Chip, Vacio, llamar, avisar, Modal, Campo, inputCls } from "@/components/ui";
 import { BarraPartes, BarrasMes, Donut, useColores, colorSerie } from "@/components/graficas";
 import Programados, { type ProgramadoApi } from "@/components/gastos/Programados";
-import { NEGOCIOS, TIPOS_INGRESO, METODOS, cobrosPorMes, porFuente, type Ingreso, type ResumenNegocio, type Cobro, type Destino } from "@/lib/ingresos";
+import { NEGOCIOS, PAGADOR, TIPOS_INGRESO, METODOS, cobrosPorMes, porFuente, type Ingreso, type ResumenNegocio, type Cobro, type Destino } from "@/lib/ingresos";
 import { eur, eur0, isoAEs, hoyISO, num, normaliza, mesClave } from "@/lib/parse";
 import { mesesEntre } from "@/lib/finanzas";
 
@@ -104,7 +104,7 @@ export default function Ingresos() {
   const serieCobros = cobrosPorMes(ings, meses);
   const hayCobrosFechados = serieCobros.some((m) => Number(m.Taller) + Number(m.Flownexion) + Number(m.Otro) > 0);
   const pendientePorCliente = new Map<string, number>();
-  for (const x of ings) if (x.pendiente > 0.005) { const k = x.cliente || (x.negocio === "Taller" ? "Taller (sin cliente)" : x.negocio); pendientePorCliente.set(k, (pendientePorCliente.get(k) || 0) + x.pendiente); }
+  for (const x of ings) if (x.pendiente > 0.005) { const k = x.cliente || (x.negocio === "Taller" ? "Taller (directo)" : x.negocio); pendientePorCliente.set(k, (pendientePorCliente.get(k) || 0) + x.pendiente); }
   const fuentes = porFuente(ings);
   const hueco = (i: Ingreso, d: Destino) => (d === "yo" ? i.pendiente : Math.max(0, Math.round(((i.importe || 0) - i.clientePago) * 100) / 100));
 
@@ -175,7 +175,7 @@ export default function Ingresos() {
         {(["Todo", "Taller", "Flownexion", ...(datos.resumen.Otro.n ? ["Otro"] : [])] as Vista[]).map((v) => (
           <button key={v} role="tab" aria-selected={vista === v} onClick={() => setVista(v)}
             className={`flex min-w-36 flex-col rounded-2xl border px-4 py-2.5 text-left transition ${vista === v ? "border-acento bg-acento-suave" : "border-borde bg-card hover:bg-card-2"}`}>
-            <span className={`text-sm font-semibold ${vista === v ? "text-acento" : "text-txt"}`}>{ICO[v]} {v === "Todo" ? "Todo" : v}</span>
+            <span className={`text-sm font-semibold ${vista === v ? "text-acento" : "text-txt"}`}>{ICO[v]} {v === "Todo" ? "Todo" : PAGADOR[v]}</span>
             <span className="text-xs tabular text-txt-3">te deben {eur0(datos.resumen[v].pendiente)}</span>
           </button>
         ))}
@@ -410,12 +410,12 @@ function FormIngreso({ f, set, nuevo = false }: { f: FormI; set: (f: FormI) => v
   const calc = !f.importe && total ? (f.porcentaje ? (total * num(f.porcentaje)) / 100 : total) : null;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      <Campo etiqueta="Negocio"><select className={inputCls} value={f.negocio} onChange={(e) => set({ ...f, negocio: e.target.value, porcentaje: e.target.value === "Taller" ? "10" : f.porcentaje })}>{NEGOCIOS.map((n) => <option key={n}>{n}</option>)}</select></Campo>
+      <Campo etiqueta="¿Quién te paga?" ayuda={f.negocio === "Flownexion" ? "El cliente paga a Flownexion y luego Flownexion a ti" : f.negocio === "Taller" ? "El taller te paga directo" : undefined}><select className={inputCls} value={f.negocio} onChange={(e) => set({ ...f, negocio: e.target.value, porcentaje: e.target.value === "Taller" ? "10" : f.porcentaje })}>{NEGOCIOS.map((n) => <option key={n} value={n}>{PAGADOR[n]}</option>)}</select></Campo>
       <Campo etiqueta="Tipo"><select className={inputCls} value={f.tipo} onChange={(e) => u("tipo", e.target.value)}>{TIPOS_INGRESO.map((n) => <option key={n}>{n}</option>)}</select></Campo>
       <Campo etiqueta="Fecha del trabajo" ayuda="Cuándo se generó"><input type="date" className={inputCls} value={f.fecha} onChange={(e) => u("fecha", e.target.value)} /></Campo>
       <Campo etiqueta="Cobrar antes de" ayuda="Opcional"><input type="date" className={inputCls} value={f.vencimiento} onChange={(e) => u("vencimiento", e.target.value)} /></Campo>
       <Campo etiqueta="Concepto / trabajo" className="col-span-2"><input className={inputCls} value={f.concepto} onChange={(e) => u("concepto", e.target.value)} placeholder={f.negocio === "Taller" ? "Filtros tamiz regaliz" : "App de reservas"} /></Campo>
-      <Campo etiqueta="Cliente"><input className={inputCls} value={f.cliente} onChange={(e) => u("cliente", e.target.value)} /></Campo>
+      <Campo etiqueta={f.negocio === "Flownexion" ? "Proyecto (cliente de Flownexion)" : "Cliente"}><input className={inputCls} value={f.cliente} onChange={(e) => u("cliente", e.target.value)} placeholder={f.negocio === "Flownexion" ? "Proyecto 3 · App de …" : ""} /></Campo>
       <Campo etiqueta="Referencia" ayuda="OCC, pedido, factura…"><input className={inputCls} value={f.referencia} onChange={(e) => u("referencia", e.target.value)} /></Campo>
       <Campo etiqueta="Unidades"><input inputMode="decimal" className={inputCls + " tabular"} value={f.unidades} onChange={(e) => u("unidades", e.target.value)} /></Campo>
       <Campo etiqueta="Precio unidad"><input inputMode="decimal" className={inputCls + " tabular"} value={f.precioUnit} onChange={(e) => u("precioUnit", e.target.value)} /></Campo>
