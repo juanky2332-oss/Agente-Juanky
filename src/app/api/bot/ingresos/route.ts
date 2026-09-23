@@ -39,6 +39,8 @@ export const POST = manejar(async (req: Request) => {
   const b = (await req.json()) as { accion: string; id?: string; busqueda?: string; filtro?: string; importe?: string | number; fecha?: string; metodo?: string; notas?: string; datos?: EntradaIngreso & { cobroInicial?: number | string } };
   const acc = normaliza(b.accion);
   if (acc === "cobros" || acc === "pendientes") return { resultado: textoCobros(await leerIngresos(), b.filtro || b.busqueda || "") };
+  // Para el parte de las 8:00: solo el número de líneas por cobrar (sin cifras, lo pidió así).
+  if (acc === "contar") return { resultado: String(resumir(await leerIngresos()).nPendientes) };
   if (acc === "resumen") {
     const ings = await leerIngresos();
     const r = ["Taller", "Flownexion"].map((n) => resumir(ings, n as "Taller"));
