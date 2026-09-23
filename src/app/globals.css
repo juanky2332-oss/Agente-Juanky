@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2;
+  --card: #ffffff;
+  --card-2: #f8f8f6;
+  --borde: #e6e5e0;
+  --txt: #0b0b0b;
+  --txt-2: #52514e;
+  --txt-3: #7d7c76;
+  --acento: #2a78d6;
+  --acento-suave: #e6effb;
+  --grid: #ecebe7;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  --otros: #a9a8a2;
+  --bien: #0ca30c; --aviso: #fab219; --serio: #ec835a; --alerta: #d03b3b;
+  --bien-txt: #006300; --alerta-txt: #b42525; --aviso-txt: #8a5a00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #111110; --card: #1a1a19; --card-2: #212120; --borde: #2e2e2c;
+    --txt: #ffffff; --txt-2: #c3c2b7; --txt-3: #8d8c84;
+    --acento: #3987e5; --acento-suave: #1b2a3d; --grid: #2a2a28;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --otros: #5f5e59;
+    --bien-txt: #4fd34f; --alerta-txt: #ff8a8a; --aviso-txt: #fac858;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --card: #1a1a19; --card-2: #212120; --borde: #2e2e2c;
+  --txt: #ffffff; --txt-2: #c3c2b7; --txt-3: #8d8c84;
+  --acento: #3987e5; --acento-suave: #1b2a3d; --grid: #2a2a28;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --otros: #5f5e59;
+  --bien-txt: #4fd34f; --alerta-txt: #ff8a8a; --aviso-txt: #fac858;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-borde: var(--borde);
+  --color-txt: var(--txt);
+  --color-txt-2: var(--txt-2);
+  --color-txt-3: var(--txt-3);
+  --color-acento: var(--acento);
+  --color-acento-suave: var(--acento-suave);
+  --color-bien: var(--bien);
+  --color-aviso: var(--aviso);
+  --color-serio: var(--serio);
+  --color-alerta: var(--alerta);
+  --color-bien-txt: var(--bien-txt);
+  --color-alerta-txt: var(--alerta-txt);
+  --color-aviso-txt: var(--aviso-txt);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+}
+
+html, body { background: var(--bg); color: var(--txt); }
+body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.tabular { font-variant-numeric: tabular-nums; }
+::selection { background: var(--acento-suave); }
+input, select, textarea { font: inherit; }
+.recharts-wrapper .recharts-surface { overflow: visible; }
+.recharts-tooltip-wrapper { outline: none; }
+*:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; border-radius: 6px; }
+.scroll-fino::-webkit-scrollbar { height: 6px; width: 6px; }
+.scroll-fino::-webkit-scrollbar-thumb { background: var(--borde); border-radius: 3px; }
+.prosa-tg b { font-weight: 600; }
+.prosa-tg a { color: var(--acento); text-decoration: underline; }
+.prosa-tg code { font-size: .85em; background: var(--card-2); padding: 0 4px; border-radius: 4px; }
