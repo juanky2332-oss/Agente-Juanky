@@ -56,6 +56,12 @@ export const COLS_ING = {
 } as const;
 export const COLS_COB = { id: "ID", ingreso: "INGRESO", fecha: "FECHA", importe: "IMPORTE", metodo: "METODO", notas: "NOTAS" } as const;
 
+/** "#i4", "I004", "4" → "I004" (en Telegram se escribe como sea). */
+export function normId(x: string, prefijo = "I") {
+  const m = String(x || "").trim().replace(/^#/, "").match(/^([a-z]?)\s*0*(\d+)$/i);
+  return m ? (m[1] || prefijo).toUpperCase() + m[2].padStart(3, "0") : String(x || "").trim().replace(/^#/, "").toUpperCase();
+}
+
 const numONull = (v: string | undefined) => (tieneNumero(v) ? num(v) : null);
 
 export function aCobro(fila: number, o: Record<string, string>): Cobro {

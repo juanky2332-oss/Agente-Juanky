@@ -3,7 +3,7 @@ import "server-only";
 // Telegram (/api/bot/ingresos): una sola lógica, así los dos lados no pueden desincronizarse.
 import { leerTabla, leerRangos, aTabla, aObjeto, anadirFila, modificarPorId, borrarPorIds, siguienteId, filaPorId } from "./sheets";
 import { ErrorN8n, avisarTelegram, escHtml } from "./n8n";
-import { aCobro, montarIngresos, NEGOCIOS, type Ingreso } from "./ingresos";
+import { aCobro, montarIngresos, NEGOCIOS, normId, type Ingreso } from "./ingresos";
 import { num, tieneNumero, fechaISO, isoAEs, hoyISO, eur } from "./parse";
 
 export interface EntradaIngreso {
@@ -108,7 +108,7 @@ export async function borrarIngreso(id: string, avisar = true) {
 
 export async function registrarCobro(b: { ingreso: string; importe?: number | string; fecha?: string; metodo?: string; notas?: string }, avisar = true) {
   const ings = await leerIngresos();
-  const i = ings.find((x) => x.id.toLowerCase() === b.ingreso.replace(/^#/, "").toLowerCase());
+  const i = ings.find((x) => x.id === normId(b.ingreso));
   if (!i) throw new ErrorN8n(`No encuentro el ingreso #${b.ingreso}`, 404);
   if (i.estado === "anulado") throw new ErrorN8n(`#${i.id} está anulado`, 400);
   if (i.importe === null) throw new ErrorN8n(`#${i.id} no tiene precio todavía: ponle importe antes de cobrarlo`, 400);

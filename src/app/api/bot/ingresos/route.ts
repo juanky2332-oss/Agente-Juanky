@@ -1,6 +1,6 @@
 import { manejar } from "@/lib/ruta";
 import { leerIngresos, crearIngreso, modificarIngreso, borrarIngreso, registrarCobro, modificarCobro, borrarCobro, type EntradaIngreso } from "@/lib/ingresosSrv";
-import { textoCobros, resumir, type Ingreso } from "@/lib/ingresos";
+import { textoCobros, resumir, normId, type Ingreso } from "@/lib/ingresos";
 import { escHtml, ErrorN8n } from "@/lib/n8n";
 import { eur, isoAEs, normaliza } from "@/lib/parse";
 
@@ -26,8 +26,7 @@ function ficha(i: Ingreso) {
 }
 
 function buscar(ings: Ingreso[], q: string) {
-  const id = q.trim().replace(/^#/, "").toUpperCase();
-  const exacto = ings.find((x) => x.id === id);
+  const exacto = ings.find((x) => x.id === normId(q));
   if (exacto) return [exacto];
   const ps = normaliza(q).split(" ").filter(Boolean);
   return ings.filter((x) => {
@@ -64,24 +63,24 @@ export const POST = manejar(async (req: Request) => {
   }
   if (acc === "modificar") {
     if (!b.id) throw new ErrorN8n("Falta el ID", 400);
-    await modificarIngreso(b.id.replace(/^#/, "").toUpperCase(), b.datos || {}, false);
-    const i = (await leerIngresos()).find((x) => x.id === b.id!.replace(/^#/, "").toUpperCase())!;
+    await modificarIngreso(normId(b.id), b.datos || {}, false);
+    const i = (await leerIngresos()).find((x) => x.id === normId(b.id!))!;
     return { resultado: `✏️ Modificado\n\n${ficha(i)}` };
   }
   if (acc === "borrar") {
     if (!b.id) throw new ErrorN8n("Falta el ID", 400);
-    const r = await borrarIngreso(b.id.replace(/^#/, "").toUpperCase(), false);
+    const r = await borrarIngreso(normId(b.id), false);
     return { resultado: `🗑 Borrado #${r.id}${r.cobrosBorrados ? ` y sus ${r.cobrosBorrados} pagos` : ""}` };
   }
   if (acc === "modificar_cobro") {
     if (!b.id) throw new ErrorN8n("Falta el ID del cobro", 400);
-    await modificarCobro(b.id.toUpperCase(), { importe: b.importe, fecha: b.fecha, metodo: b.metodo, notas: b.notas }, false);
-    return { resultado: `✏️ Cobro ${b.id.toUpperCase()} modificado` };
+    await modificarCobro(normId(b.id, "C"), { importe: b.importe, fecha: b.fecha, metodo: b.metodo, notas: b.notas }, false);
+    return { resultado: `✏️ Cobro ${normId(b.id, "C")} modificado` };
   }
   if (acc === "borrar_cobro") {
     if (!b.id) throw new ErrorN8n("Falta el ID del cobro", 400);
-    await borrarCobro(b.id.toUpperCase(), false);
-    return { resultado: `↩️ Cobro ${b.id.toUpperCase()} borrado` };
+    await borrarCobro(normId(b.id, "C"), false);
+    return { resultado: `↩️ Cobro ${normId(b.id, "C")} borrado` };
   }
   throw new ErrorN8n("Acción no válida: cobros, resumen, ver, cobrar, crear, modificar, borrar, modificar_cobro, borrar_cobro", 400);
 });
