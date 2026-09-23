@@ -8,7 +8,7 @@ import { eur, eur0, pct, hoyISO, mesClave, isoAEs } from "@/lib/parse";
 import type { Nota } from "@/lib/datos";
 
 interface Fin { movimientos: Movimiento[]; hallazgos: Hallazgo[]; recurrentes: { mensualEquivalente: number }[] }
-interface Res { facturado: number; cobrado: number; pendiente: number; nPendientes: number; nSinPrecio: number }
+interface Res { facturado: number; cobrado: number; pendiente: number; debeFlownexion: number; esperaCliente: number; nPendientes: number; nSinPrecio: number }
 interface Ing { resumen: { Todo: Res; Taller: Res; Flownexion: Res } }
 interface Ev { id: string; titulo: string; inicio: string; fin: string; todoElDia: boolean }
 
@@ -109,8 +109,12 @@ export default function Inicio() {
       {ing.datos && (
         <div className="grid gap-4 lg:grid-cols-2">
           {(["Taller", "Flownexion"] as const).map((n) => (
-            <Tarjeta key={n} titulo={n === "Taller" ? "🔧 Cobros del taller" : "💻 Cobros de Flownexion"} extra={<Link href="/ingresos" className="text-xs text-acento">Ingresos →</Link>} sub={`Tuyo: ${eur(ing.datos!.resumen[n].facturado)}${ing.datos!.resumen[n].nSinPrecio ? ` · ${ing.datos!.resumen[n].nSinPrecio} sin precio` : ""}`}>
-              <BarraPartes partes={[{ nombre: "Cobrado", valor: ing.datos!.resumen[n].cobrado, color: c.bien }, { nombre: "Pendiente", valor: ing.datos!.resumen[n].pendiente, color: c.s5 }]} />
+            <Tarjeta key={n} titulo={n === "Taller" ? "🔧 Taller (te paga directo)" : `💻 Flownexion te debe ${eur0(ing.datos!.resumen.Flownexion.pendiente)}`} extra={<Link href="/ingresos" className="text-xs text-acento">Ingresos →</Link>} sub={`Tuyo: ${eur(ing.datos!.resumen[n].facturado)}${ing.datos!.resumen[n].nSinPrecio ? ` · ${ing.datos!.resumen[n].nSinPrecio} sin precio` : ""}`}>
+              {n === "Taller" ? (
+                <BarraPartes partes={[{ nombre: "Cobrado", valor: ing.datos!.resumen[n].cobrado, color: c.bien }, { nombre: "Pendiente", valor: ing.datos!.resumen[n].pendiente, color: c.s5 }]} />
+              ) : (
+                <BarraPartes partes={[{ nombre: "Te ha pagado", valor: ing.datos!.resumen[n].cobrado, color: c.bien }, { nombre: "🏦 Lo tiene Flownexion", valor: ing.datos!.resumen[n].debeFlownexion, color: c.s5 }, { nombre: "⏳ Falta que pague el cliente", valor: ing.datos!.resumen[n].esperaCliente, color: c.s3 }]} />
+              )}
             </Tarjeta>
           ))}
         </div>

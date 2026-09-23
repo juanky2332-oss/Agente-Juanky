@@ -3,7 +3,7 @@ import "server-only";
 // Telegram (/api/bot/ingresos): una sola lógica, así los dos lados no pueden desincronizarse.
 import { leerTabla, leerRangos, aTabla, aObjeto, anadirFila, modificarPorId, borrarPorIds, siguienteId, filaPorId } from "./sheets";
 import { ErrorN8n, avisarTelegram, escHtml } from "./n8n";
-import { aCobro, montarIngresos, NEGOCIOS, normId, type Ingreso } from "./ingresos";
+import { aCobro, aDestino, montarIngresos, NEGOCIOS, normId, type Ingreso, type Destino } from "./ingresos";
 import { num, tieneNumero, fechaISO, isoAEs, hoyISO, eur } from "./parse";
 
 export interface EntradaIngreso {
@@ -72,14 +72,14 @@ export async function leerIngresos(): Promise<Ingreso[]> {
 
 const linea = (i: Pick<Ingreso, "id" | "negocio" | "cliente" | "concepto">) => `<code>#${i.id}</code> ${escHtml(i.negocio)} · ${escHtml(i.cliente ? i.cliente + " · " : "")}${escHtml(i.concepto)}`;
 
-export async function crearIngreso(e: EntradaIngreso & { cobroInicial?: number | string; fechaCobro?: string }, avisar = true) {
+export async function crearIngreso(e: EntradaIngreso & { cobroInicial?: number | string; fechaCobro?: string; destinoCobro?: string }, avisar = true) {
   const t = await leerTabla("Ingresos");
   const id = siguienteId(t, "I");
   const cols = aColumnas(e);
   if (!cols.FECHA) cols.FECHA = isoAEs(hoyISO());
   await anadirFila("Ingresos", { ...cols, ID: id, ORIGEN: avisar ? "app" : "telegram" }, t.cabecera);
   let cobro: string | null = null;
-  if (tieneNumero(e.cobroInicial) && num(e.cobroInicial) > 0) cobro = (await registrarCobro({ ingreso: id, importe: e.cobroInicial!, fecha: e.fechaCobro }, false)).id;
+  if (tieneNumero(e.cobroInicial) && num(e.cobroInicial) > 0) cobro = (await registrarCobro({ ingreso: id, importe: e.cobroInicial!, fecha: e.fechaCobro, destino: e.destinoCobro }, false)).id;
   if (avisar)
     await avisarTelegram(`💰 <b>Nuevo ingreso desde la app</b>\n${linea({ id, negocio: cols.NEGOCIO as Ingreso["negocio"], cliente: cols.CLIENTE || "", concepto: cols.CONCEPTO })}\nImporte: <b>${cols.IMPORTE ? eur(num(cols.IMPORTE)) : "sin precio"}</b>${cobro ? `\nYa cobrado: ${eur(num(e.cobroInicial))}` : ""}`);
   return { id, cobro };
@@ -106,29 +106,43 @@ export async function borrarIngreso(id: string, avisar = true) {
   return { id, cobrosBorrados: i.cobros.length };
 }
 
-export async function registrarCobro(b: { ingreso: string; importe?: number | string; fecha?: string; metodo?: string; notas?: string }, avisar = true) {
+/**
+ * Apunta un pago. destino "yo" (por defecto) = te ha llegado a ti. destino "flownexion" = el
+ * cliente ha pagado a Flownexion (solo en ingresos de Flownexion; el importe es TU PARTE de ese
+ * pago y no cuenta como cobrado: pasa a ser dinero que Flownexion te debe).
+ */
+export async function registrarCobro(b: { ingreso: string; importe?: number | string; fecha?: string; metodo?: string; notas?: string; destino?: string }, avisar = true) {
+  const destino: Destino = aDestino(b.destino);
   const ings = await leerIngresos();
   const i = ings.find((x) => x.id === normId(b.ingreso));
   if (!i) throw new ErrorN8n(`No encuentro el ingreso #${b.ingreso}`, 404);
   if (i.estado === "anulado") throw new ErrorN8n(`#${i.id} está anulado`, 400);
   if (i.importe === null) throw new ErrorN8n(`#${i.id} no tiene precio todavía: ponle importe antes de cobrarlo`, 400);
-  if (i.pendiente <= 0.005) throw new ErrorN8n(`#${i.id} ya está cobrado entero`, 400);
-  const importe = tieneNumero(b.importe) ? num(b.importe) : i.pendiente;
+  if (destino === "flownexion" && i.negocio !== "Flownexion") throw new ErrorN8n(`#${i.id} es de ${i.negocio}: ahí el cliente te paga directo a ti, no a Flownexion`, 400);
+  // Hueco que queda: a ti, lo pendiente; del cliente a Flownexion, lo que el cliente aún no ha pagado.
+  const hueco = destino === "yo" ? i.pendiente : Math.round(((i.importe || 0) - i.clientePago) * 100) / 100;
+  if (hueco <= 0.005) throw new ErrorN8n(destino === "yo" ? `#${i.id} ya te lo han pagado entero` : `El cliente ya pagó a Flownexion todo #${i.id}`, 400);
+  const importe = tieneNumero(b.importe) ? num(b.importe) : hueco;
   if (!(importe > 0)) throw new ErrorN8n("El importe del cobro tiene que ser mayor que 0", 400);
-  if (importe > i.pendiente + 0.005) throw new ErrorN8n(`Solo quedan ${eur(i.pendiente)} por cobrar de #${i.id}; has puesto ${eur(importe)}`, 400);
+  if (importe > hueco + 0.005) throw new ErrorN8n(`Solo quedan ${eur(hueco)} ${destino === "yo" ? "por cobrar" : "que el cliente no haya pagado"} de #${i.id}; has puesto ${eur(importe)}`, 400);
   const t = await leerTabla("Cobros");
   const id = siguienteId(t, "C");
   const fecha = b.fecha ? fechaHoja(b.fecha) : isoAEs(hoyISO());
-  await anadirFila("Cobros", { ID: id, INGRESO: i.id, FECHA: fecha, IMPORTE: dec(importe), METODO: b.metodo || "", NOTAS: b.notas || "" }, t.cabecera);
+  await anadirFila("Cobros", { ID: id, INGRESO: i.id, FECHA: fecha, IMPORTE: dec(importe), METODO: b.metodo || "", NOTAS: b.notas || "", DESTINO: destino }, t.cabecera);
   // Se relee para confirmar de verdad (regla de la casa: nunca "guardado" a ciegas).
   const despues = (await leerIngresos()).find((x) => x.id === i.id)!;
-  if (!(despues.cobrado > i.cobrado)) throw new ErrorN8n("He escrito el cobro pero al releer no aparece. Revisa la hoja Cobros.", 502);
+  const subio = destino === "yo" ? despues.cobrado > i.cobrado : despues.clientePago > i.clientePago;
+  if (!subio) throw new ErrorN8n("He escrito el cobro pero al releer no aparece. Revisa la hoja Cobros.", 502);
   if (avisar)
-    await avisarTelegram(`✅ <b>Cobro apuntado desde la app</b>\n${linea(i)}\nCobrado ahora: <b>${eur(importe)}</b>${b.metodo ? " (" + escHtml(b.metodo) + ")" : ""}\n${despues.pendiente > 0.005 ? `Queda pendiente: <b>${eur(despues.pendiente)}</b>` : "🎉 Cobrado entero"}`);
-  return { id, ingreso: i.id, importe, pendiente: despues.pendiente, estado: despues.estado };
+    await avisarTelegram(
+      destino === "yo"
+        ? `✅ <b>Cobro apuntado desde la app</b>\n${linea(i)}\nTe han pagado: <b>${eur(importe)}</b>${b.metodo ? " (" + escHtml(b.metodo) + ")" : ""}\n${despues.pendiente > 0.005 ? `Queda pendiente: <b>${eur(despues.pendiente)}</b>` : "🎉 Cobrado entero"}`
+        : `🏦 <b>El cliente ha pagado a Flownexion</b>\n${linea(i)}\nTu parte de ese pago: <b>${eur(importe)}</b>\nFlownexion te debe ahora de esto: <b>${eur(despues.debeFlownexion)}</b>`,
+    );
+  return { id, ingreso: i.id, importe, destino, pendiente: despues.pendiente, debeFlownexion: despues.debeFlownexion, estado: despues.estado };
 }
 
-export async function modificarCobro(id: string, b: { importe?: number | string; fecha?: string; metodo?: string; notas?: string }, avisar = true) {
+export async function modificarCobro(id: string, b: { importe?: number | string; fecha?: string; metodo?: string; notas?: string; destino?: string }, avisar = true) {
   const c: Record<string, string> = {};
   if (b.importe !== undefined) {
     if (!(num(b.importe) > 0)) throw new ErrorN8n("Importe no válido", 400);
@@ -137,8 +151,15 @@ export async function modificarCobro(id: string, b: { importe?: number | string;
   if (b.fecha !== undefined) c.FECHA = b.fecha ? fechaHoja(b.fecha) : "";
   if (b.metodo !== undefined) c.METODO = b.metodo;
   if (b.notas !== undefined) c.NOTAS = b.notas;
+  if (b.destino !== undefined) c.DESTINO = aDestino(b.destino);
+  if (c.DESTINO === "flownexion") {
+    const t = await leerTabla("Cobros");
+    const f = filaPorId(t, id);
+    const ing = f ? (await leerIngresos()).find((x) => x.id === aObjeto(t, f.celdas).INGRESO) : null;
+    if (ing && ing.negocio !== "Flownexion") throw new ErrorN8n(`Ese pago es de ${ing.negocio}: ahí te pagan directo, no a través de Flownexion`, 400);
+  }
   const { antes } = await modificarPorId("Cobros", id, c);
-  if (avisar) await avisarTelegram(`✏️ <b>Cobro modificado desde la app</b> <code>${id}</code> (de #${escHtml(antes.INGRESO)}): ${escHtml(antes.IMPORTE)} → ${escHtml(c.IMPORTE || antes.IMPORTE)} €`);
+  if (avisar) await avisarTelegram(`✏️ <b>Cobro modificado desde la app</b> <code>${id}</code> (de #${escHtml(antes.INGRESO)}): ${escHtml(antes.IMPORTE)} → ${escHtml(c.IMPORTE || antes.IMPORTE)} €${c.DESTINO && c.DESTINO !== (antes.DESTINO || "yo") ? ` · ahora: ${c.DESTINO === "flownexion" ? "cliente → Flownexion" : "a ti"}` : ""}`);
   return { id };
 }
 
