@@ -259,7 +259,11 @@ export function textoCobros(ings: Ingreso[], filtro = ""): string {
       }
       L.push(
         `<code>#${x.id}</code> ${esc(x.concepto)} — <b>${e(x.pendiente)}</b>` +
-          (x.negocio === "Flownexion" ? (x.debeFlownexion > 0.005 ? " 🏦" : " ⏳") : "") +
+          (x.negocio === "Flownexion"
+            ? x.debeFlownexion > 0.005 && x.esperaCliente > 0.005
+              ? ` <i>(🏦 ${e(x.debeFlownexion)} ya cobrado del cliente · ⏳ ${e(x.esperaCliente)} sin pagar)</i>`
+              : x.debeFlownexion > 0.005 ? " 🏦" : " ⏳"
+            : "") +
           (x.cobrado > 0.005 ? ` <i>(te han pagado ${e(x.cobrado)} de ${e(x.importe || 0)})</i>` : "") +
           (x.vencido ? " 🔴 vencido" : ""),
       );
