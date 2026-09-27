@@ -1,10 +1,30 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useApi, Tarjeta, Boton, Cargando, FalloCarga, Titulo, Vacio, llamar, avisar, inputCls, Campo, Chip, Kpi, HtmlTelegram, Modal } from "@/components/ui";
 import { Ranking, Donut, BarrasSimples, useColores, colorSerie } from "@/components/graficas";
 import { normaliza, num } from "@/lib/parse";
+import { FichaVino, leerFicha, comentariosSuyos } from "@/components/FichaVino";
 
 type F = Record<string, string> & { fila: number };
+
+// Foto -> JPEG de 1600 px como mucho: la etiqueta se lee igual y la subida es ligera.
+async function comprimir(f: File): Promise<{ base64: string; mime: string }> {
+  if (!f.type.startsWith("image/")) throw new Error("Tiene que ser una foto");
+  const img = await createImageBitmap(f);
+  const escala = Math.min(1, 1600 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * escala);
+  c.height = Math.round(img.height * escala);
+  c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise<Blob>((ok) => c.toBlob((b) => ok(b!), "image/jpeg", 0.85));
+  const base64 = await new Promise<string>((ok, ko) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).split(",")[1]);
+    r.onerror = ko;
+    r.readAsDataURL(blob);
+  });
+  return { base64, mime: "image/jpeg" };
+}
 
 export default function Gastro() {
   const { datos, error, cargando, recargar } = useApi<{ restaurantes: F[]; vinos: F[] }>("/api/gastro");
@@ -15,7 +35,43 @@ export default function Gastro() {
   const [f, setF] = useState({ nota: "", comentario: "", platos: "", quien: "" });
   const [resultado, setResultado] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [ver, setVer] = useState<F | null>(null); // vino con la ficha abierta
+  const [ocupado, setOcupado] = useState(""); // texto mientras lee la foto o investiga
+  const inputFoto = useRef<HTMLInputElement>(null);
   const c = useColores();
+
+  // Foto de la botella: la IA lee la etiqueta y el motor del bot lo investiga y lo guarda.
+  const subirFoto = async (archivo?: File) => {
+    if (!archivo) return;
+    setOcupado("Leyendo la etiqueta e investigando el vino (bodega, Guía Peñín, tiendas)… tarda unos 30-60 s");
+    try {
+      const img = await comprimir(archivo);
+      const r = await llamar<{ resultado: string }>("/api/gastro/foto", "POST", img);
+      setQue("vinos");
+      setResultado(r.resultado);
+      recargar();
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    } finally {
+      setOcupado("");
+      if (inputFoto.current) inputFoto.current.value = "";
+    }
+  };
+
+  // Vuelve a investigar un vino ya apuntado (rehace su ficha del sumiller).
+  const investigar = async (x: F) => {
+    setVer(null);
+    setOcupado(`Investigando ${x.NOMBRE}… tarda unos 30 s`);
+    try {
+      const r = await llamar<{ resultado: string }>("/api/gastro", "POST", { que: "vinos", accion: "enriquecer", nombre: "#V" + x.fila });
+      setResultado(r.resultado);
+      recargar();
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    } finally {
+      setOcupado("");
+    }
+  };
 
   const lista = useMemo(() => {
     const t = normaliza(q);
@@ -64,8 +120,22 @@ export default function Gastro() {
 
   return (
     <div>
-      <Titulo titulo="Guía gastro" sub="Restaurantes de Murcia y vinos. Se escribe con el mismo motor que /resto y /vino del bot (un vino nuevo se completa solo desde internet)."
-        extra={<Boton tipo="primario" onClick={() => (setF({ nota: "", comentario: "", platos: "", quien: "" }), setModal({ accion: "alta", nombre: "" }))}>+ Añadir {que === "vinos" ? "vino" : "restaurante"}</Boton>} />
+      <Titulo titulo="Guía gastro" sub="Restaurantes de Murcia y vinos. Mismo motor que /resto y /vino del bot: cada vino nuevo lo investiga un sumiller en internet (bodega, origen, Guía Peñín, precio de mercado)."
+        extra={
+          <div className="flex flex-wrap gap-2">
+            <Boton disabled={!!ocupado} onClick={() => inputFoto.current?.click()}>📷 Foto de un vino</Boton>
+            <Boton tipo="primario" onClick={() => (setF({ nota: "", comentario: "", platos: "", quien: "" }), setModal({ accion: "alta", nombre: "" }))}>+ Añadir {que === "vinos" ? "vino" : "restaurante"}</Boton>
+            <input ref={inputFoto} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => subirFoto(e.target.files?.[0])} />
+          </div>
+        } />
+      {ocupado && (
+        <Tarjeta className="mb-4">
+          <div className="flex items-center gap-3 text-sm text-txt-2">
+            <span className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-acento border-t-transparent" aria-hidden />
+            {ocupado}
+          </div>
+        </Tarjeta>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <Kpi etiqueta="Restaurantes" valor={rs.length} sub={`${visitados.length} visitados`} />
         <Kpi etiqueta="Pendientes de probar" valor={rs.filter((r) => normaliza(r.ESTADO) === "pendiente").length} />
@@ -138,13 +208,22 @@ export default function Gastro() {
               {lista.map((x) => (
                 <li key={x.fila} className="flex items-start justify-between gap-3 py-2.5">
                   <div className="min-w-0">
-                    <div className="font-medium">{x.NOMBRE} <span className="text-[11px] text-txt-3">#{que === "vinos" ? "V" : "R"}{x.fila}</span></div>
+                    {que === "vinos" ? (
+                      <button className="text-left font-medium hover:text-acento hover:underline" onClick={() => setVer(x)}>
+                        {x.NOMBRE} <span className="text-[11px] text-txt-3">#V{x.fila}</span>
+                        {!leerFicha(x) && <span className="ml-1.5 rounded bg-card-2 px-1.5 py-0.5 text-[10px] font-normal text-txt-3">sin investigar</span>}
+                      </button>
+                    ) : (
+                      <div className="font-medium">{x.NOMBRE} <span className="text-[11px] text-txt-3">#R{x.fila}</span></div>
+                    )}
                     <div className="text-xs text-txt-3">
                       {que === "vinos"
                         ? [x.BODEGA, x.DO, x.TIPO, x.UVA, x["AÑADA"], x.PRECIO].filter(Boolean).join(" · ")
                         : [x.ZONA, x.COCINA, x.ESTADO, num(x.VISITAS) ? `${x.VISITAS} visitas` : "", x["ULTIMA VISITA"]].filter(Boolean).join(" · ")}
                     </div>
-                    {x.COMENTARIO && <div className="mt-1 text-xs text-txt-2 line-clamp-2">{x.COMENTARIO}</div>}
+                    {que === "vinos"
+                      ? comentariosSuyos(x.COMENTARIO).length > 0 && <div className="mt-1 text-xs text-txt-2 line-clamp-2">{comentariosSuyos(x.COMENTARIO).join(" · ")}</div>
+                      : x.COMENTARIO && <div className="mt-1 text-xs text-txt-2 line-clamp-2">{x.COMENTARIO}</div>}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {num(x.NOTA) > 0 && <span className="rounded-lg bg-acento-suave px-2 py-1 text-sm font-semibold text-acento tabular">{x.NOTA}</span>}
@@ -159,6 +238,17 @@ export default function Gastro() {
           <Ranking items={conNota.sort((a, b) => num(b.NOTA) - num(a.NOTA)).slice(0, 10).map((x) => ({ nombre: x.NOMBRE, valor: num(x.NOTA), color: c.s1, clave: x.NOMBRE + x.fila }))} max={10} formato={(n) => n.toLocaleString("es-ES") + "/10"} vacio="Aún no hay valoraciones" />
         </Tarjeta>
       </div>
+      <Modal abierto={!!ver} cerrar={() => setVer(null)} titulo={ver ? `🍷 ${ver.NOMBRE}${ver["AÑADA"] ? " " + ver["AÑADA"] : ""}` : ""} ancho="max-w-xl">
+        {ver && (
+          <div className="grid gap-4">
+            <FichaVino v={ver} ficha={leerFicha(ver)} />
+            <div className="flex flex-wrap justify-end gap-2">
+              <Boton disabled={!!ocupado} onClick={() => investigar(ver)}>🔎 {leerFicha(ver) ? "Investigar de nuevo" : "Investigar"}</Boton>
+              <Boton tipo="primario" onClick={() => { const n = ver.NOMBRE; setVer(null); setF({ nota: "", comentario: "", platos: "", quien: "" }); setModal({ accion: "apuntar", nombre: n }); }}>Valorar</Boton>
+            </div>
+          </div>
+        )}
+      </Modal>
       <Modal abierto={!!modal} cerrar={() => setModal(null)} titulo={modal?.accion === "alta" ? `Nuevo ${que === "vinos" ? "vino" : "restaurante"}` : `Valorar ${modal?.nombre}`} ancho="max-w-lg">
         {modal && (
           <div className="grid gap-3">
@@ -166,7 +256,7 @@ export default function Gastro() {
               <>
                 <Campo etiqueta="Nombre"><input className={inputCls} value={modal.nombre} onChange={(e) => setModal({ ...modal, nombre: e.target.value })} /></Campo>
                 {que === "restaurantes" && <Campo etiqueta="Recomendado por"><input className={inputCls} value={f.quien} onChange={(e) => setF({ ...f, quien: e.target.value })} /></Campo>}
-                {que === "vinos" && <p className="text-xs text-txt-3">Si el vino es nuevo, el motor busca en internet bodega, D.O., uva y precio (tarda unos segundos).</p>}
+                {que === "vinos" && <p className="text-xs text-txt-3">Si el vino es nuevo, el sumiller lo investiga en internet: bodega, origen, crianza, cata, Guía Peñín y precio de mercado (tarda unos 30 s). Con una foto de la etiqueta es más fiable.</p>}
               </>
             )}
             {modal.accion === "apuntar" && (
