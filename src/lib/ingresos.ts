@@ -328,7 +328,8 @@ export function coincide(i: Ingreso, busqueda: string) {
   const ps = normaliza(busqueda).split(" ").filter((p) => p && !["de", "del", "la", "el", "los", "las", "y", "a"].includes(p));
   if (!ps.length) return true;
   const t = " " + normaliza(`${i.id} ${i.negocio} ${i.cliente} ${i.concepto} ${i.referencia} ${i.notas} ${i.tipo}`) + " ";
-  return ps.every((p) => t.includes(p));
+  // Los números van como palabra entera: "proyecto 1" no puede casar con "1.320 €".
+  return ps.every((p) => (/^\d+$/.test(p) ? t.includes(" " + p + " ") : t.includes(p)));
 }
 
 export interface Seleccion {

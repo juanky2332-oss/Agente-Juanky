@@ -35,7 +35,7 @@ function buscar(ings: Ingreso[], q: string) {
   const ps = normaliza(q).split(" ").filter(Boolean);
   return ings.filter((x) => {
     const t = " " + normaliza(`${x.negocio} ${x.cliente} ${x.concepto} ${x.referencia} ${x.notas}`) + " ";
-    return ps.every((p) => t.includes(" " + p) || t.includes(p));
+    return ps.every((p) => (/^\d+$/.test(p) ? t.includes(" " + p + " ") : t.includes(p)));
   });
 }
 
