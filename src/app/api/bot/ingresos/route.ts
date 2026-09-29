@@ -92,7 +92,7 @@ export const POST = manejar(async (req: Request) => {
   // Cambiar tu % (reparto) en varios ingresos y la plantilla de los meses que vienen.
   if (acc === "reparto" || acc === "porcentaje" || acc === "cambiar_porcentaje") {
     const r = await cambiarReparto({ ids, busqueda: b.busqueda, tipo: b.tipo, negocio: b.negocio, cliente: b.cliente, desde: b.desde, hasta: b.hasta, porcentaje: b.porcentaje ?? "", simular }, false);
-    return { resultado: r.texto + (simular ? "\n\n¿Lo aplico?" : "") };
+    return { resultado: r.texto + (simular && (r.cambios.length || r.programados.length) ? "\n\n¿Lo aplico?" : "") };
   }
   if (acc === "crear" || acc === "alta") {
     const r = await crearIngreso(b.datos || {}, false);
