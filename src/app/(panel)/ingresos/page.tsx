@@ -186,13 +186,13 @@ export default function Ingresos() {
           <button key={v} role="tab" aria-selected={vista === v} onClick={() => setVista(v)}
             className={`flex min-w-36 flex-col rounded-2xl border px-4 py-2.5 text-left transition ${vista === v ? "border-acento bg-acento-suave" : "border-borde bg-card hover:bg-card-2"}`}>
             <span className={`text-sm font-semibold ${vista === v ? "text-acento" : "text-txt"}`}>{ICO[v]} {v === "Todo" ? "Todo" : PAGADOR[v]}</span>
-            <span className="text-xs tabular text-txt-3">te deben {eur0(datos.resumen[v].pendiente)}</span>
+            <span className="text-xs tabular text-txt-3">te deben ya {eur0(datos.resumen[v].pendiente - datos.resumen[v].esperaCliente)}{datos.resumen[v].esperaCliente > 0.005 ? ` · +${eur0(datos.resumen[v].esperaCliente)} si pagan los clientes` : ""}</span>
           </button>
         ))}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <Kpi etiqueta="Te deben" valor={eur0(r.pendiente)} sub={`${r.nPendientes} por cobrar${r.nVencidos ? ` · ${r.nVencidos} vencidos` : ""}`} tono={r.pendiente > 0 ? "aviso" : "bien"} />
+        <Kpi etiqueta="Te deben ya" valor={eur0(r.pendiente - r.esperaCliente)} sub={r.esperaCliente > 0.005 ? `+${eur0(r.esperaCliente)} cuando paguen los clientes (aún no)` : `${r.nPendientes} por cobrar${r.nVencidos ? ` · ${r.nVencidos} vencidos` : ""}`} tono={r.pendiente - r.esperaCliente > 0.005 ? "aviso" : "bien"} />
         <Kpi etiqueta="Te ha llegado a ti" valor={eur0(r.cobrado)} sub={`${r.facturado ? Math.round((r.cobrado / r.facturado) * 100) : 0} % de lo tuyo`} tono="bien" />
         {vista === "Taller" ? (
           <>
