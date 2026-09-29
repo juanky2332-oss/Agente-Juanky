@@ -45,7 +45,7 @@ export interface EntradaVarios extends Seleccion {
 
 export interface ResultadoVarios {
   destino: Destino;
-  apuntados: { cobro: string; ingreso: string; concepto: string; fecha: string | null; importe: number }[];
+  apuntados: { cobro: string; ingreso: string; negocio: string; concepto: string; fecha: string | null; importe: number }[];
   omitidos: { ingreso: string; concepto: string; motivo: string }[];
   creados: string[]; // líneas de meses que aún no existían (creadas desde su programado)
   total: number;
@@ -105,7 +105,7 @@ export async function pagarVarios(b: EntradaVarios, avisar = true): Promise<Resu
   }
   const res: ResultadoVarios = {
     destino,
-    apuntados: apuntar.map((x) => ({ cobro: "", ingreso: x.i.id, concepto: x.i.concepto, fecha: x.i.fecha, importe: x.importe })),
+    apuntados: apuntar.map((x) => ({ cobro: "", ingreso: x.i.id, negocio: x.i.negocio, concepto: x.i.concepto, fecha: x.i.fecha, importe: x.importe })),
     omitidos,
     creados,
     total: r2(apuntar.reduce((s, x) => s + x.importe, 0)),

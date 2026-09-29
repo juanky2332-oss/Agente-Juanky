@@ -79,6 +79,13 @@ export const POST = manejar(async (req: Request) => {
   const simular = b.simular === true || /^(s[ií]|true|1)$/i.test(String(b.simular || ""));
   if (acc === "pagar_varios" || acc === "cobrar_varios" || acc === "cliente_pago_varios") {
     const destino = acc.startsWith("cliente") || /flow|cliente/i.test(b.destino || "") ? "flownexion" : "yo";
+    // En Flownexion hay dos pagos distintos (cliente → Flownexion y Flownexion → él). Si no se
+    // ha dicho cuál, NO se apunta nada: el bot tiene que preguntárselo (pasó en una prueba).
+    if (acc !== "cliente_pago_varios" && !/^(yo|a mi|mi|flow|cliente)/.test(normaliza(b.destino)) && !simular) {
+      const pre = await pagarVarios({ ids, busqueda: b.busqueda, tipo: b.tipo, negocio: b.negocio, cliente: b.cliente, desde: b.desde, hasta: b.hasta, destino: "yo", simular: true }, false);
+      if (pre.apuntados.some((a) => a.negocio === "Flownexion"))
+        return { resultado: pre.texto + "\n\n❓ <b>Esto es de Flownexion.</b> ¿El dinero te ha llegado <b>a ti</b> (Flownexion te ha pagado) o solo ha pagado <b>el cliente a Flownexion</b>? No he apuntado nada todavía." };
+    }
     const r = await pagarVarios({ ids, busqueda: b.busqueda, tipo: b.tipo, negocio: b.negocio, cliente: b.cliente, desde: b.desde, hasta: b.hasta, destino, fecha: b.fecha || undefined, metodo: b.metodo, notas: b.notas, simular }, false);
     return { resultado: r.texto };
   }
