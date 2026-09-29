@@ -255,7 +255,7 @@ export function textoCobros(ings: Ingreso[], filtro = ""): string {
         "",
         `<b>💻 Flownexion te debe YA ${e(r.debeFlownexion)}</b> (lo que los clientes ya le pagaron y no te ha pasado)`,
         `  ⏳ Y cuando paguen los clientes, ${e(r.esperaCliente)} más (esto aún no te lo debe)`,
-        `  A ti te ha llegado ${e(r.cobrado)} de ${e(r.facturado)} · por proyecto: <code>/proyectos</code> o pregunta «¿cómo va el proyecto 1?»`,
+        `  A ti te ha llegado ${e(r.cobrado)} de ${e(r.facturado)} · por proyecto, pregúntame «¿cómo va el proyecto 1?»`,
       );
     else L.push("", `<b>${n === "Taller" ? "🔧 Taller (te paga directo)" : "📦 Otros"}</b> · pendiente <b>${e(r.pendiente)}</b> (cobrado ${e(r.cobrado)} de ${e(r.facturado)})`);
     let fuente = "";
