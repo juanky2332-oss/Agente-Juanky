@@ -406,3 +406,91 @@ export function escalarPagosCliente(i: Ingreso, nuevoImporte: number) {
   }
   return cambios;
 }
+
+// ─── Estado por proyecto de Flownexion (app + mantenimiento), sin mezclar proyectos ────────
+
+export interface PlanMantenimiento { id: string; activo: boolean; importe: number; desde: string | null; concepto: string; notas: string; negocio: string }
+
+export interface EstadoProyecto {
+  proyecto: string;
+  app: { ids: string[]; total: number | null; pct: number | null; tuyo: number; clientePago: number; esperaCliente: number; cobrado: number };
+  mant: { meses: { id: string; mes: string | null; tuyo: number; clientePago: number; cobrado: number }[]; totalMes: number | null; pct: number | null; tuyo: number; clientePago: number; esperaCliente: number; cobrado: number };
+  plan: (PlanMantenimiento & { total: number | null; pct: number | null }) | null;
+  tuyo: number; cobrado: number; debeFlownexion: number; esperaCliente: number; pendiente: number;
+}
+
+/** Proyectos de Flownexion uno por uno: lo tuyo de la app, lo tuyo del mantenimiento y dónde está el dinero. */
+export function proyectosFlownexion(ings: Ingreso[], planes: PlanMantenimiento[] = []): EstadoProyecto[] {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const suma = (xs: Ingreso[], k: "importe" | "clientePago" | "esperaCliente" | "cobrado" | "debeFlownexion" | "pendiente") => r2(xs.reduce((s, x) => s + (x[k] || 0), 0));
+  const clienteDe = (p: PlanMantenimiento) => (p.notas.match(/Cliente:\s*([^.]+)/i) || [])[1]?.trim() || "";
+  const flow = ings.filter((i) => i.negocio === "Flownexion" && i.estado !== "anulado");
+  const nombres = [...new Set([...flow.map((i) => i.cliente || "sin proyecto"), ...planes.filter((p) => normaliza(p.negocio) === "flownexion").map(clienteDe).filter(Boolean)])].sort();
+  return nombres.map((proyecto) => {
+    const xs = flow.filter((i) => (i.cliente || "sin proyecto") === proyecto);
+    const app = xs.filter((i) => !/manten/i.test(i.tipo));
+    const mant = xs.filter((i) => /manten/i.test(i.tipo)).sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""));
+    const plan0 = planes.find((p) => normaliza(p.negocio) === "flownexion" && clienteDe(p) === proyecto);
+    const rep = plan0 ? leerReparto(plan0.concepto) : null;
+    const primeroMant = mant.find((m) => m.totalTrabajo);
+    return {
+      proyecto,
+      app: {
+        ids: app.map((i) => i.id),
+        total: app.length ? r2(app.reduce((s, i) => s + (i.totalTrabajo || 0), 0)) || null : null,
+        pct: app[0]?.porcentaje ?? null,
+        tuyo: suma(app, "importe"), clientePago: suma(app, "clientePago"), esperaCliente: suma(app, "esperaCliente"), cobrado: suma(app, "cobrado"),
+      },
+      mant: {
+        meses: mant.map((m) => ({ id: m.id, mes: m.fecha ? m.fecha.slice(0, 7) : null, tuyo: m.importe || 0, clientePago: m.clientePago, cobrado: m.cobrado })),
+        totalMes: primeroMant?.totalTrabajo ?? rep?.total ?? null,
+        pct: primeroMant?.porcentaje ?? rep?.pct ?? null,
+        tuyo: suma(mant, "importe"), clientePago: suma(mant, "clientePago"), esperaCliente: suma(mant, "esperaCliente"), cobrado: suma(mant, "cobrado"),
+      },
+      plan: plan0 ? { ...plan0, total: rep?.total ?? null, pct: rep?.pct ?? null } : null,
+      tuyo: suma(xs, "importe"), cobrado: suma(xs, "cobrado"), debeFlownexion: suma(xs, "debeFlownexion"), esperaCliente: suma(xs, "esperaCliente"), pendiente: suma(xs, "pendiente"),
+    };
+  });
+}
+
+/** Rango legible de meses: "abril–septiembre 2026". */
+export function rangoMeses(meses: (string | null)[]) {
+  const ms = meses.filter((m): m is string => !!m).sort();
+  if (!ms.length) return "";
+  const a = nombreMes(ms[0]), b = nombreMes(ms[ms.length - 1]);
+  if (ms.length === 1) return a;
+  return ms[0].slice(0, 4) === ms[ms.length - 1].slice(0, 4) ? `${a.split(" ")[0]}–${b}` : `${a} – ${b}`;
+}
+
+/** Texto para Telegram: cada proyecto por separado, con cifras calculadas aquí (el bot no suma). */
+export function textoProyectos(ps: EstadoProyecto[], filtro = ""): string {
+  const e = (n: number) => n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const f = normaliza(filtro).replace(/proyecto/g, "").trim();
+  const xs = f ? ps.filter((p) => f.split(" ").filter(Boolean).every((w) => (/^\d+$/.test(w) ? (" " + normaliza(p.proyecto) + " ").includes(" " + w + " ") : normaliza(p.proyecto).includes(w)))) : ps;
+  if (!xs.length) return "No encuentro ese proyecto de Flownexion. Proyectos: " + ps.map((p) => esc(p.proyecto)).join(", ");
+  const L: string[] = [];
+  for (const p of xs) {
+    L.push(`💻 <b>${esc(p.proyecto)}</b>`);
+    if (p.app.ids.length) {
+      L.push(`<b>App</b>: ${p.app.total ? `total ${e(p.app.total)} → ` : ""}tu ${p.app.pct ?? "?"} % = <b>${e(p.app.tuyo)}</b>`);
+      const cli = p.app.pct ? Math.round((p.app.clientePago / p.app.pct) * 10000) / 100 : null;
+      L.push(`  🏦 el cliente ya pagó a Flownexion ${cli !== null ? `${e(cli)} (tu parte ${e(p.app.clientePago)})` : `tu parte de ${e(p.app.clientePago)}`}${p.app.esperaCliente > 0.005 ? ` · ⏳ falta que el cliente pague <b>${e(p.app.esperaCliente)}</b>` : " · ✅ el cliente lo ha pagado todo"}`);
+    }
+    if (p.mant.meses.length) {
+      const pagadosCli = p.mant.meses.filter((m) => m.clientePago >= m.tuyo - 0.005 || m.cobrado >= m.tuyo - 0.005);
+      const sinPagar = p.mant.meses.filter((m) => !pagadosCli.includes(m));
+      L.push(`<b>Mantenimiento</b>: ${p.mant.totalMes ? `${e(p.mant.totalMes)}/mes → ` : ""}tu ${p.mant.pct ?? "?"} % = ${e(p.mant.meses[0].tuyo)}/mes · ${p.mant.meses.length} meses (${rangoMeses(p.mant.meses.map((m) => m.mes))}) = <b>${e(p.mant.tuyo)}</b>`);
+      L.push(`  🏦 pagados por el cliente a Flownexion: ${pagadosCli.length} (${e(p.mant.clientePago)})${sinPagar.length ? ` · ⏳ sin pagar: ${rangoMeses(sinPagar.map((m) => m.mes))} (${e(p.mant.esperaCliente)})` : ""}`);
+    } else if (p.plan) {
+      L.push(`<b>Mantenimiento</b>: ${p.plan.total ? `${e(p.plan.total)}/mes → ` : ""}tu ${p.plan.pct ?? "?"} % = ${e(p.plan.importe)}/mes · ${p.plan.activo && p.plan.desde ? `empieza ${nombreMes(p.plan.desde.slice(0, 7))}` : "⏸ <b>sin empezar</b> (no cuenta todavía)"}`);
+    }
+    L.push(`💶 A ti te ha llegado: <b>${e(p.cobrado)}</b> de ${e(p.tuyo)}`);
+    L.push(`👉 <b>Flownexion te debe ya: ${e(p.debeFlownexion)}</b>${p.esperaCliente > 0.005 ? ` · y cuando pague el cliente, ${e(p.esperaCliente)} más` : ""}`, "");
+  }
+  if (xs.length > 1) {
+    const t = (k: "debeFlownexion" | "esperaCliente" | "cobrado") => xs.reduce((s, p) => s + p[k], 0);
+    L.push(`<b>Entre todos</b>: Flownexion te debe ya ${e(t("debeFlownexion"))} · pendiente de que paguen los clientes ${e(t("esperaCliente"))} · te ha llegado ${e(t("cobrado"))}`);
+  }
+  return L.join("\n").trim();
+}

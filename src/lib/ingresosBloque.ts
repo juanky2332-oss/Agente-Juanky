@@ -4,12 +4,12 @@ import "server-only";
 import { leerRangos, aTabla, aObjeto, anadirFilas, modificarVariosPorId, siguienteId } from "./sheets";
 import { ErrorN8n, avisarTelegram, escHtml } from "./n8n";
 import {
-  aCobro, aDestino, montarIngresos, seleccionar, huecoDe, conceptoConPorcentaje, leerReparto, nombreMes, escalarPagosCliente,
+  aCobro, aDestino, montarIngresos, seleccionar, huecoDe, conceptoConPorcentaje, leerReparto, nombreMes, escalarPagosCliente, proyectosFlownexion, aMes,
   type Ingreso, type Destino, type Seleccion,
 } from "./ingresos";
 import { aProgramado, ocurrencias, idGenerado, filaIngreso, type Programado } from "./programados";
 import { leerIngresos, fechaHoja, r2, dec } from "./ingresosSrv";
-import { num, tieneNumero, isoAEs, hoyISO, eur } from "./parse";
+import { num, tieneNumero, isoAEs, hoyISO, eur, normaliza } from "./parse";
 
 async function leerTodo() {
   const [iv, cv, pv] = await leerRangos(["'Ingresos'!A1:Z3000", "'Cobros'!A1:Z5000", "'Programados'!A1:Z300"]);
@@ -254,3 +254,36 @@ function textoReparto(r: ResultadoReparto) {
   return L.join("\n");
 }
 
+
+/** Estado de cada proyecto de Flownexion (app + mantenimiento + plan de los meses que vienen). */
+export async function leerProyectos() {
+  const { ings, progs } = await leerTodo();
+  return proyectosFlownexion(ings, progs);
+}
+
+/**
+ * Enciende/apaga el mantenimiento programado de un proyecto ("Rodamientos empieza en noviembre").
+ * Solo toca la plantilla (Programados): las líneas de cada mes se crean solas cuando llega el mes.
+ */
+export async function planMantenimiento(b: { busqueda: string; desde?: string; activo?: boolean }, avisar = true) {
+  const { tp, progs } = await leerTodo();
+  const q = normaliza(b.busqueda).replace(/proyecto|mantenimiento|manten/g, "").trim();
+  const porId = progs.filter((p) => p.id.toUpperCase() === b.busqueda.trim().replace(/^#/, "").toUpperCase());
+  const xs = porId.length ? porId : progs.filter((p) => q.split(" ").filter(Boolean).every((w) => (" " + normaliza(`${p.nombre} ${p.notas} ${p.concepto}`) + " ").includes(/^\d+$/.test(w) ? " " + w + " " : w)));
+  if (!xs.length) throw new ErrorN8n(`No encuentro ningún mantenimiento programado con «${b.busqueda}»`, 404);
+  if (xs.length > 1) throw new ErrorN8n(`Hay ${xs.length}: ${xs.map((p) => p.id + " " + p.nombre).join(", ")}. Dime cuál.`, 400);
+  const p = xs[0];
+  const activo = b.activo !== false;
+  const c: Record<string, string> = { ACTIVO: activo ? "sí" : "no" };
+  if (activo) {
+    const mes = b.desde ? aMes(b.desde) : null;
+    if (!mes) throw new ErrorN8n("Dime desde qué mes empieza (p.ej. «noviembre 2026»)", 400);
+    c.DESDE = isoAEs(`${mes}-${String(p.dia).padStart(2, "0")}`);
+  }
+  await modificarVariosPorId("Programados", new Map([[p.id, c]]), tp);
+  const txt = activo
+    ? `🔁 <b>Mantenimiento en marcha</b>: ${escHtml(p.nombre)} (<code>${p.id}</code>) · ${eur(p.importe)}/mes para ti desde ${nombreMes(aMes(b.desde)!)}. Cada mes se crea sola la línea por cobrar.`
+    : `⏸ <b>Mantenimiento parado</b>: ${escHtml(p.nombre)} (<code>${p.id}</code>). No se crean más meses.`;
+  if (avisar) await avisarTelegram("📲 <i>Desde la app</i>\n" + txt);
+  return { id: p.id, texto: txt };
+}

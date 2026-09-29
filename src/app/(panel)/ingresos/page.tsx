@@ -3,10 +3,11 @@ import { useMemo, useState } from "react";
 import { useApi, Tarjeta, Kpi, Boton, Cargando, FalloCarga, Titulo, Chip, Vacio, llamar, avisar, Modal, Campo, inputCls } from "@/components/ui";
 import { BarraPartes, BarrasMes, Donut, useColores, colorSerie } from "@/components/graficas";
 import Programados, { type ProgramadoApi } from "@/components/gastos/Programados";
-import { NEGOCIOS, PAGADOR, TIPOS_INGRESO, METODOS, cobrosPorMes, porFuente, type Ingreso, type ResumenNegocio, type Cobro, type Destino } from "@/lib/ingresos";
+import { NEGOCIOS, PAGADOR, TIPOS_INGRESO, METODOS, cobrosPorMes, porFuente, proyectosFlownexion, type Ingreso, type ResumenNegocio, type Cobro, type Destino } from "@/lib/ingresos";
 import { eur, eur0, isoAEs, hoyISO, num, normaliza, mesClave } from "@/lib/parse";
 import { mesesEntre } from "@/lib/finanzas";
 import { PagarVarios, CambiarReparto } from "@/components/ingresos/Bloque";
+import Proyectos from "@/components/ingresos/Proyectos";
 
 interface Datos { ingresos: Ingreso[]; resumen: Record<"Todo" | "Taller" | "Flownexion" | "Otro", ResumenNegocio>; programados: ProgramadoApi[] }
 type Vista = "Todo" | "Taller" | "Flownexion" | "Otro";
@@ -243,6 +244,8 @@ export default function Ingresos() {
           ) : <Vacio>Aún no hay pagos con fecha. Cuando apuntes un cobro (o le pongas fecha a los antiguos), aparecen aquí.</Vacio>}
         </Tarjeta>
       </div>
+
+      {(vista === "Todo" || vista === "Flownexion") && <Proyectos ps={proyectosFlownexion(datos.ingresos, datos.programados)} alCambiar={recargar} />}
 
       <Tarjeta className="mb-4" titulo="De dónde viene tu dinero" sub="Cada fuente por separado: el taller te paga directo; Flownexion te paga tu parte de cada proyecto">
         <div className="overflow-x-auto scroll-fino -mx-1">

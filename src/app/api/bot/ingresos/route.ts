@@ -1,6 +1,7 @@
 import { manejar } from "@/lib/ruta";
 import { leerIngresos, crearIngreso, modificarIngreso, borrarIngreso, registrarCobro, modificarCobro, borrarCobro, type EntradaIngreso } from "@/lib/ingresosSrv";
-import { pagarVarios, cambiarReparto } from "@/lib/ingresosBloque";
+import { pagarVarios, cambiarReparto, leerProyectos, planMantenimiento } from "@/lib/ingresosBloque";
+import { textoProyectos } from "@/lib/ingresos";
 import { textoCobros, resumir, porFuente, normId, type Ingreso } from "@/lib/ingresos";
 import { escHtml, ErrorN8n } from "@/lib/n8n";
 import { eur, isoAEs, normaliza } from "@/lib/parse";
@@ -94,6 +95,13 @@ export const POST = manejar(async (req: Request) => {
     const r = await cambiarReparto({ ids, busqueda: b.busqueda, tipo: b.tipo, negocio: b.negocio, cliente: b.cliente, desde: b.desde, hasta: b.hasta, porcentaje: b.porcentaje ?? "", simular }, false);
     return { resultado: r.texto + (simular && (r.cambios.length || r.programados.length) ? "\n\n¿Lo aplico?" : "") };
   }
+  // Estado de cada proyecto de Flownexion por separado (app + mantenimiento + a quién le llegó).
+  if (acc === "proyectos" || acc === "proyecto") return { resultado: textoProyectos(await leerProyectos(), b.busqueda || b.id || "") };
+  // Encender/apagar el mantenimiento programado de un proyecto: busqueda + desde (mes) o activo=no.
+  if (acc === "empezar_mantenimiento" || acc === "parar_mantenimiento") {
+    const r = await planMantenimiento({ busqueda: b.busqueda || "", desde: b.desde, activo: acc === "empezar_mantenimiento" }, false);
+    return { resultado: r.texto };
+  }
   if (acc === "crear" || acc === "alta") {
     const r = await crearIngreso(b.datos || {}, false);
     const i = (await leerIngresos()).find((x) => x.id === r.id)!;
@@ -120,5 +128,5 @@ export const POST = manejar(async (req: Request) => {
     await borrarCobro(normId(b.id, "C"), false);
     return { resultado: `↩️ Cobro ${normId(b.id, "C")} borrado` };
   }
-  throw new ErrorN8n("Acción no válida: cobros, resumen, ver, cobrar, cliente_pago, pagar_varios, cliente_pago_varios, reparto, crear, modificar, borrar, modificar_cobro, borrar_cobro", 400);
+  throw new ErrorN8n("Acción no válida: cobros, resumen, ver, cobrar, cliente_pago, pagar_varios, cliente_pago_varios, reparto, proyectos, empezar_mantenimiento, parar_mantenimiento, crear, modificar, borrar, modificar_cobro, borrar_cobro", 400);
 });
