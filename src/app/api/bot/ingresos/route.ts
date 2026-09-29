@@ -52,8 +52,8 @@ export const POST = manejar(async (req: Request) => {
     return {
       resultado: [
         `<b>🔧 Taller (te paga directo)</b>: tuyo ${eur(t.facturado)} · cobrado ${eur(t.cobrado)} · te debe <b>${eur(t.pendiente)}</b> (${t.nPendientes} por cobrar, ${t.nSinPrecio} sin precio)`,
-        `<b>💻 Flownexion</b>: tuyo ${eur(f.facturado)} · te ha pagado ${eur(f.cobrado)} · te debe <b>${eur(f.pendiente)}</b>`,
-        `  🏦 ya cobrado del cliente: ${eur(f.debeFlownexion)} · ⏳ el cliente aún no ha pagado: ${eur(f.esperaCliente)}`,
+        `<b>💻 Flownexion</b>: tuyo ${eur(f.facturado)} · te ha pagado ${eur(f.cobrado)} · te debe YA <b>${eur(f.debeFlownexion)}</b>`,
+        `  ⏳ y cuando paguen los clientes, ${eur(f.esperaCliente)} más (aún no te lo debe)`,
         "",
         "<b>Por fuente</b>",
         ...porFuente(ings).map((x) => `• ${escHtml(x.fuente)}: tuyo ${eur(x.facturado)} · cobrado ${eur(x.cobrado)} · pendiente ${eur(x.pendiente)}`),

@@ -242,18 +242,20 @@ export function textoCobros(ings: Ingreso[], filtro = ""): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const e = (n: number) => n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
   const L: string[] = ["💰 <b>Lo que te deben</b>"];
-  let total = 0;
+  let total = 0; // lo que te deben YA (taller + lo que Flownexion ya cobró del cliente)
+  let esperan = 0; // Flownexion: aún no lo han pagado los clientes
   for (const n of neg) {
     const xs = ings.filter((x) => x.negocio === n && x.pendiente > 0.005).sort((a, b) => b.pendiente - a.pendiente);
     if (!xs.length) continue;
     const r = resumir(ings, n);
-    total += r.pendiente;
+    total += n === "Flownexion" ? r.debeFlownexion : r.pendiente;
+    if (n === "Flownexion") esperan += r.esperaCliente;
     if (n === "Flownexion")
       L.push(
         "",
-        `<b>💻 Flownexion te debe ${e(r.pendiente)}</b> (a ti te ha pagado ${e(r.cobrado)} de ${e(r.facturado)})`,
-        `  🏦 Ya lo cobró del cliente y no te lo ha dado: <b>${e(r.debeFlownexion)}</b>`,
-        `  ⏳ El cliente aún no lo ha pagado: ${e(r.esperaCliente)}`,
+        `<b>💻 Flownexion te debe YA ${e(r.debeFlownexion)}</b> (lo que los clientes ya le pagaron y no te ha pasado)`,
+        `  ⏳ Y cuando paguen los clientes, ${e(r.esperaCliente)} más (esto aún no te lo debe)`,
+        `  A ti te ha llegado ${e(r.cobrado)} de ${e(r.facturado)} · por proyecto: <code>/proyectos</code> o pregunta «¿cómo va el proyecto 1?»`,
       );
     else L.push("", `<b>${n === "Taller" ? "🔧 Taller (te paga directo)" : "📦 Otros"}</b> · pendiente <b>${e(r.pendiente)}</b> (cobrado ${e(r.cobrado)} de ${e(r.facturado)})`);
     let fuente = "";
@@ -276,7 +278,7 @@ export function textoCobros(ings: Ingreso[], filtro = ""): string {
   }
   const sinPrecio = ings.filter((x) => neg.includes(x.negocio) && x.estado === "sin precio").length;
   if (L.length === 1) L.push("", "Nadie te debe nada 🎉");
-  else L.push("", `<b>Total pendiente: ${e(total)}</b>`);
+  else L.push("", `<b>Te deben ya: ${e(total)}</b>${esperan > 0.005 ? ` · y ${e(esperan)} más cuando paguen los clientes de Flownexion` : ""}`);
   if (sinPrecio) L.push(`⚪ ${sinPrecio} trabajos sin precio todavía (no cuentan).`);
   if (neg.includes("Flownexion")) L.push("🏦 = el cliente ya pagó a Flownexion · ⏳ = el cliente aún no ha pagado");
   L.push("", "Te han pagado a ti: <code>/cobrado #I012 150</code> (sin importe = entero)");
