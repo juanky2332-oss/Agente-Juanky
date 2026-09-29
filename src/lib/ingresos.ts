@@ -282,3 +282,126 @@ export function textoCobros(ings: Ingreso[], filtro = ""): string {
   L.push("", "Te han pagado a ti: <code>/cobrado #I012 150</code> (sin importe = entero)");
   return L.join("\n");
 }
+
+// ─── Pagos de varios meses y cambios de reparto ────────────────────────────────────────────
+
+const MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+/**
+ * Mes "AAAA-MM" a partir de lo que se escriba: "2026-08", "08/2026", "8-26", "01/08/2026",
+ * "agosto 2026", "ago", "agosto" (sin año = el año de hoy). null si no se entiende.
+ */
+export function aMes(v: unknown, hoy = hoyISO()): string | null {
+  const t = normaliza(v).replace(/\bde\b/g, " ").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  const f = fechaISO(t);
+  if (f) return f.slice(0, 7);
+  let m = t.match(/^(\d{4})[-/. ](\d{1,2})$/);
+  if (m && +m[2] >= 1 && +m[2] <= 12) return `${m[1]}-${m[2].padStart(2, "0")}`;
+  m = t.match(/^(\d{1,2})[-/. ](\d{2}|\d{4})$/);
+  if (m && +m[1] >= 1 && +m[1] <= 12) return `${m[2].length === 2 ? "20" + m[2] : m[2]}-${m[1].padStart(2, "0")}`;
+  m = t.match(/^([a-z]{3,})\.?(?: (\d{4}|\d{2}))?$/);
+  if (m) {
+    const k = MESES_ES.findIndex((x) => x.startsWith(m![1].slice(0, 3)) || (m![1] === "setiembre" && x === "septiembre"));
+    if (k >= 0) return `${m[2] ? (m[2].length === 2 ? "20" + m[2] : m[2]) : hoy.slice(0, 4)}-${String(k + 1).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+export const nombreMes = (mes: string) => `${MESES_ES[+mes.slice(5, 7) - 1]} ${mes.slice(0, 4)}`;
+
+/** Meses "AAAA-MM" entre dos (incluidos). Si vienen al revés, se ordenan. */
+export function mesesDelRango(desde: string, hasta: string): string[] {
+  const [ini, b] = [desde, hasta].sort();
+  let a = ini;
+  const out: string[] = [];
+  for (let k = 0; a <= b && k < 120; k++) {
+    out.push(a);
+    const [y, m] = a.split("-").map(Number);
+    a = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+  }
+  return out;
+}
+
+/** Palabras sueltas de la búsqueda que están todas en el ingreso (#ID exacto también vale). */
+export function coincide(i: Ingreso, busqueda: string) {
+  const ps = normaliza(busqueda).split(" ").filter((p) => p && !["de", "del", "la", "el", "los", "las", "y", "a"].includes(p));
+  if (!ps.length) return true;
+  const t = " " + normaliza(`${i.id} ${i.negocio} ${i.cliente} ${i.concepto} ${i.referencia} ${i.notas} ${i.tipo}`) + " ";
+  return ps.every((p) => t.includes(p));
+}
+
+export interface Seleccion {
+  ids?: string[];
+  busqueda?: string;
+  tipo?: string; // "mantenimiento" | "proyecto" | "trabajo" | "" (todos)
+  negocio?: string;
+  cliente?: string; // proyecto exacto ("Proyecto 1 · App del taller")
+  desde?: string; // mes (cualquier formato de aMes)
+  hasta?: string;
+}
+
+/**
+ * Qué ingresos entran en una operación en bloque. Con ids manda la lista; si no, búsqueda +
+ * tipo + negocio + rango de meses (por la FECHA del trabajo: el mantenimiento de agosto es el
+ * que tiene fecha de agosto). Los anulados nunca entran.
+ */
+export function seleccionar(ings: Ingreso[], s: Seleccion, hoy = hoyISO()) {
+  const ids = (s.ids || []).map((x) => normId(x)).filter(Boolean);
+  if (ids.length) {
+    const faltan = ids.filter((id) => !ings.some((i) => i.id === id));
+    return { lista: ings.filter((i) => ids.includes(i.id) && i.estado !== "anulado"), faltan, meses: [] as string[] };
+  }
+  const d = s.desde ? aMes(s.desde, hoy) : null;
+  const h = s.hasta ? aMes(s.hasta, hoy) : d;
+  if (s.desde && !d) throw new Error(`No entiendo el mes «${s.desde}». Ponlo como 08/2026 o «agosto 2026».`);
+  if (s.hasta && !h) throw new Error(`No entiendo el mes «${s.hasta}». Ponlo como 09/2026 o «septiembre 2026».`);
+  const [ini, fin] = d && h ? [d, h].sort() : [null, null];
+  const tipo = normaliza(s.tipo);
+  const neg = normaliza(s.negocio);
+  const cli = normaliza(s.cliente);
+  const lista = ings.filter(
+    (i) =>
+      i.estado !== "anulado" &&
+      (!tipo || normaliza(i.tipo).startsWith(tipo.slice(0, 5))) &&
+      (!neg || normaliza(i.negocio) === neg) &&
+      (!cli || normaliza(i.cliente) === cli) &&
+      coincide(i, s.busqueda || "") &&
+      (!ini || (!!i.fecha && i.fecha.slice(0, 7) >= ini && i.fecha.slice(0, 7) <= fin!)),
+  );
+  return { lista: lista.sort((a, b) => (a.fecha || "").localeCompare(b.fecha || "") || a.id.localeCompare(b.id)), faltan: [] as string[], meses: ini ? mesesDelRango(ini, fin!) : [] };
+}
+
+/** Lo que falta por pagar en un sentido: a ti (lo pendiente) o del cliente a Flownexion. */
+export const huecoDe = (i: Ingreso, d: Destino) => (d === "yo" ? i.pendiente : Math.max(0, Math.round(((i.importe || 0) - i.clientePago) * 100) / 100));
+
+/** Cambia el "NN %" del concepto ("Mantenimiento abril 2026 (30 % de 200 €)") al nuevo porcentaje. */
+export function conceptoConPorcentaje(concepto: string, pct: number) {
+  const p = String(Math.round(pct * 100) / 100).replace(".", ",");
+  return /\d+(?:[.,]\d+)?\s*%/.test(concepto) ? concepto.replace(/\d+(?:[.,]\d+)?\s*%/, `${p} %`) : concepto;
+}
+
+/** Porcentaje y total que dice un texto "(30 % de 175 €)". */
+export function leerReparto(txt: string): { pct: number; total: number } | null {
+  const m = String(txt || "").match(/(\d+(?:[.,]\d+)?)\s*%\s*de\s*([\d.,]+)\s*€?/i);
+  return m ? { pct: num(m[1]), total: num(m[2]) } : null;
+}
+
+/**
+ * Los pagos cliente → Flownexion se guardan en TU parte. Si tu parte cambia (p.ej. del 30 % al
+ * 60 %), lo que el cliente pagó sigue siendo el mismo porcentaje del total: se escalan igual.
+ * Los pagos que te llegaron a ti son dinero real y NO se tocan. Devuelve id de cobro → cambios.
+ */
+export function escalarPagosCliente(i: Ingreso, nuevoImporte: number) {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const cambios = new Map<string, Record<string, string>>();
+  if (!i.importe || Math.abs(nuevoImporte - i.importe) < 0.005) return cambios;
+  const f = nuevoImporte / i.importe;
+  let acumulado = 0;
+  for (const c of i.cobros.filter((x) => x.destino === "flownexion")) {
+    const nuevo = Math.min(r2(c.importe * f), r2(nuevoImporte - acumulado));
+    acumulado += nuevo;
+    if (Math.abs(nuevo - c.importe) >= 0.005) cambios.set(c.id, { IMPORTE: String(nuevo) });
+  }
+  return cambios;
+}

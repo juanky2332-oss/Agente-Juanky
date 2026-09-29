@@ -1,9 +1,12 @@
 import "server-only";
 // Operaciones de escritura de ingresos y cobros. Las usan la app (/api/ingresos) y el bot de
 // Telegram (/api/bot/ingresos): una sola lógica, así los dos lados no pueden desincronizarse.
-import { leerTabla, leerRangos, aTabla, aObjeto, anadirFila, modificarPorId, borrarPorIds, siguienteId, filaPorId } from "./sheets";
+import { leerTabla, leerRangos, aTabla, aObjeto, anadirFila, modificarPorId, modificarVariosPorId, borrarPorIds, siguienteId, filaPorId } from "./sheets";
 import { ErrorN8n, avisarTelegram, escHtml } from "./n8n";
-import { aCobro, aDestino, montarIngresos, NEGOCIOS, normId, type Ingreso, type Destino } from "./ingresos";
+import {
+  aCobro, aDestino, montarIngresos, NEGOCIOS, normId, conceptoConPorcentaje, escalarPagosCliente,
+  type Ingreso, type Destino,
+} from "./ingresos";
 import { num, tieneNumero, fechaISO, isoAEs, hoyISO, eur } from "./parse";
 
 export interface EntradaIngreso {
@@ -23,8 +26,9 @@ export interface EntradaIngreso {
   notas?: string;
 }
 
-const dec = (n: number) => String(Math.round(n * 100) / 100);
-const fechaHoja = (v: string | undefined) => {
+export const r2 = (n: number) => Math.round(n * 100) / 100;
+export const dec = (n: number) => String(r2(n));
+export const fechaHoja = (v: string | undefined) => {
   if (!v) return "";
   const f = fechaISO(v);
   if (!f) throw new ErrorN8n("Fecha no válida: " + v, 400);
@@ -86,8 +90,28 @@ export async function crearIngreso(e: EntradaIngreso & { cobroInicial?: number |
 }
 
 export async function modificarIngreso(id: string, e: EntradaIngreso, avisar = true) {
+  // Si cambia el % o el total y no se ha tocado a mano lo tuyo, se recalcula (y el "NN %" del
+  // concepto). Los pagos del cliente a Flownexion están en TU parte: se escalan con ella.
+  let actual: Ingreso | undefined;
+  if ((e.porcentaje !== undefined || e.totalTrabajo !== undefined) && e.importe === undefined) {
+    actual = (await leerIngresos()).find((x) => x.id === id);
+    if (!actual) throw new ErrorN8n(`#${id} ya no existe`, 404);
+    const n = (v: unknown) => (tieneNumero(v) ? num(v) : null);
+    const total = e.totalTrabajo !== undefined ? n(e.totalTrabajo) : actual.totalTrabajo;
+    const pct = e.porcentaje !== undefined ? n(e.porcentaje) : actual.porcentaje;
+    if (total !== null && pct !== null) {
+      e = { ...e, importe: r2((total * pct) / 100) };
+      if (e.concepto === undefined && e.porcentaje !== undefined) e.concepto = conceptoConPorcentaje(actual.concepto, pct);
+    }
+  }
   const cols = aColumnas(e, true);
+  if (actual && cols.IMPORTE && num(cols.IMPORTE) < actual.cobrado - 0.005)
+    throw new ErrorN8n(`#${id}: ya te han pagado ${eur(actual.cobrado)} y lo tuyo quedaría en ${eur(num(cols.IMPORTE))}. Revisa los pagos antes.`, 400);
   const { antes } = await modificarPorId("Ingresos", id, cols);
+  if (actual && cols.IMPORTE && actual.importe) {
+    const esc = escalarPagosCliente(actual, num(cols.IMPORTE));
+    if (esc.size) await modificarVariosPorId("Cobros", esc);
+  }
   if (avisar) {
     const cambios = Object.entries(cols).filter(([k, v]) => (antes[k] || "") !== v).map(([k, v]) => `${k.toLowerCase()}: ${escHtml(antes[k] || "—")} → ${escHtml(v || "—")}`);
     if (cambios.length) await avisarTelegram(`✏️ <b>Ingreso modificado desde la app</b> <code>#${id}</code>\n${cambios.join("\n")}`);

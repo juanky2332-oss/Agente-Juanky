@@ -6,6 +6,7 @@ import Programados, { type ProgramadoApi } from "@/components/gastos/Programados
 import { NEGOCIOS, PAGADOR, TIPOS_INGRESO, METODOS, cobrosPorMes, porFuente, type Ingreso, type ResumenNegocio, type Cobro, type Destino } from "@/lib/ingresos";
 import { eur, eur0, isoAEs, hoyISO, num, normaliza, mesClave } from "@/lib/parse";
 import { mesesEntre } from "@/lib/finanzas";
+import { PagarVarios, CambiarReparto } from "@/components/ingresos/Bloque";
 
 interface Datos { ingresos: Ingreso[]; resumen: Record<"Todo" | "Taller" | "Flownexion" | "Otro", ResumenNegocio>; programados: ProgramadoApi[] }
 type Vista = "Todo" | "Taller" | "Flownexion" | "Otro";
@@ -78,6 +79,8 @@ export default function Ingresos() {
   const [nuevo, setNuevo] = useState<FormI | null>(null);
   const [cobrar, setCobrar] = useState<{ i: Ingreso; importe: string; fecha: string; metodo: string; notas: string; destino: Destino } | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [marcados, setMarcados] = useState<string[]>([]);
+  const [bloque, setBloque] = useState<"pagar" | "reparto" | null>(null);
   const c = useColores();
 
   const ings = useMemo(() => (datos?.ingresos || []).filter((x) => vista === "Todo" || x.negocio === vista), [datos, vista]);
@@ -168,7 +171,13 @@ export default function Ingresos() {
       <Titulo
         titulo="Ingresos"
         sub="Dos canales separados: lo que te paga el taller directamente y lo que te tiene que pagar Flownexion (cuando el cliente paga a Flownexion, ese dinero aún NO es tuyo: Flownexion te lo debe). Lo mismo lo ve el bot (/cobros, /cobrado)."
-        extra={<Boton tipo="primario" onClick={() => setNuevo(formVacio(vista))}>+ Nuevo ingreso</Boton>}
+        extra={
+          <span className="flex flex-wrap gap-2">
+            <Boton onClick={() => (setMarcados([]), setBloque("pagar"))} title="Por ejemplo: el mantenimiento de agosto a septiembre">📅 Pagar varios meses</Boton>
+            <Boton onClick={() => setBloque("reparto")} title="Cambiar tu % en varios ingresos y recalcularlo todo">％ Cambiar reparto</Boton>
+            <Boton tipo="primario" onClick={() => setNuevo(formVacio(vista))}>+ Nuevo ingreso</Boton>
+          </span>
+        }
       />
 
       <div className="mb-5 flex gap-1.5 overflow-x-auto scroll-fino" role="tablist">
@@ -265,7 +274,13 @@ export default function Ingresos() {
       <Tarjeta
         className="mb-4"
         titulo={`${lista.length} ${filtro === "porcobrar" ? "por cobrar" : "líneas"}`}
-        sub="Toca una línea para ver sus pagos, editarla o borrarla"
+        sub={marcados.length ? (
+          <span className="flex flex-wrap items-center gap-2">
+            <b>{marcados.length} marcados</b>
+            <Boton pequeno tipo="primario" onClick={() => setBloque("pagar")}>Pagar los marcados</Boton>
+            <Boton pequeno tipo="fantasma" onClick={() => setMarcados([])}>Quitar marcas</Boton>
+          </span>
+        ) : "Toca una línea para ver sus pagos. Marca la casilla de varias para pagarlas de golpe"}
         extra={<input aria-label="Buscar" className={inputCls + " !w-36 !py-1 text-xs"} placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} />}
       >
         <div className="mb-3 flex flex-wrap gap-1.5">
@@ -278,6 +293,10 @@ export default function Ingresos() {
             <table className="w-full text-sm min-w-[860px]">
               <thead>
                 <tr className="text-left text-xs text-txt-3">
+                  <th className="px-1 py-1.5 w-6">
+                    <input type="checkbox" aria-label="Marcar todos los que faltan por pagar" checked={!!lista.length && lista.filter((x) => x.pendiente > 0.005).every((x) => marcados.includes(x.id))}
+                      onChange={(e) => setMarcados(e.target.checked ? [...new Set([...marcados, ...lista.filter((x) => x.pendiente > 0.005).map((x) => x.id)])] : [])} />
+                  </th>
                   <th className="px-1 py-1.5 font-medium">#</th>
                   <th className="px-1 font-medium">Fecha trabajo</th>
                   <th className="px-1 font-medium">Trabajo / cliente</th>
@@ -292,6 +311,9 @@ export default function Ingresos() {
               <tbody>
                 {lista.map((x) => (
                   <tr key={x.id} className="border-t border-borde hover:bg-card-2 cursor-pointer align-top" onClick={() => setFicha(x.id)}>
+                    <td className="px-1 py-2" onClick={(e) => e.stopPropagation()}>
+                      {x.pendiente > 0.005 && <input type="checkbox" aria-label={`Marcar ${x.id}`} checked={marcados.includes(x.id)} onChange={(e) => setMarcados(e.target.checked ? [...marcados, x.id] : marcados.filter((m) => m !== x.id))} />}
+                    </td>
                     <td className="px-1 py-2 text-xs text-txt-3 whitespace-nowrap">{ICO[x.negocio]} {x.id}</td>
                     <td className="px-1 py-2 text-xs whitespace-nowrap"><FechaEditable valor={x.fecha} etiqueta="fecha del trabajo" guardar={(f) => guardarCampo(x.id, { fecha: f }, "Fecha del trabajo guardada")} /></td>
                     <td className="px-1 py-2">
@@ -327,9 +349,10 @@ export default function Ingresos() {
           <ul className="grid gap-1.5 text-sm text-txt-2">
             <li>• <b>Tuyo</b> es lo que te corresponde: en el taller el 10 % de cada trabajo (y desde octubre de 2026 el mantenimiento de la app, 75 €/mes directo); en Flownexion tu parte del proyecto o del mantenimiento.</li>
             <li>• <b>Flownexion va en dos pasos</b>: el cliente paga a Flownexion (🏦, apúntalo con «El cliente ha pagado a Flownexion») y luego Flownexion te paga a ti («Me ha pagado»). Solo lo segundo cuenta como cobrado.</li>
+            <li>• <b>Varios meses de golpe</b>: «📅 Pagar varios meses» (elige proyecto y de qué mes a qué mes) o marca las casillas de la lista. <b>Cambiar reparto</b> recalcula tu % en todo (mantenimientos de Flownexion: 30 % consultor + 30 % desarrollador = 60 %).</li>
             <li>• Cada pago es una línea con su <b>fecha</b>: puedes cobrar a medias tantas veces como haga falta. <b>Te deben</b> = tuyo − lo que te ha llegado.</li>
             <li>• La <b>fecha del trabajo</b> dice cuándo se generó; la de cada pago, cuándo cobraste. Las dos se cambian tocándolas.</li>
-            <li>• Por Telegram: <code>/cobros</code>, <code>/cobros flownexion</code>, <code>/cobrado #I012 150</code> (te han pagado a ti), o dile al asistente «Rodamientos ha pagado a Flownexion el segundo 50 %».</li>
+            <li>• Por Telegram: <code>/cobros</code>, <code>/cobros flownexion</code>, <code>/cobrado #I012 150</code> (te han pagado a ti), o dile al asistente «Rodamientos ha pagado a Flownexion el segundo 50 %», «me han pagado el mantenimiento de agosto a septiembre» o «el mantenimiento es el 60 %, recalcula».</li>
           </ul>
         </Tarjeta>
       </div>
@@ -390,6 +413,9 @@ export default function Ingresos() {
           </div>
         )}
       </Modal>
+
+      {bloque === "pagar" && <PagarVarios abierto cerrar={() => setBloque(null)} ings={datos.ingresos} idsIniciales={marcados} alTerminar={() => (setMarcados([]), recargar())} />}
+      {bloque === "reparto" && <CambiarReparto abierto cerrar={() => setBloque(null)} ings={datos.ingresos} alTerminar={recargar} />}
 
       <Modal abierto={!!nuevo} cerrar={() => setNuevo(null)} titulo="Nuevo ingreso" ancho="max-w-2xl">
         {nuevo && <FormIngreso f={nuevo} set={setNuevo} nuevo />}

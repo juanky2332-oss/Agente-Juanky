@@ -215,6 +215,23 @@ export async function modificarPorId(nombre: string, id: string, cambios: Record
   return { fila: f.fila, antes: aObjeto(t, f.celdas) };
 }
 
+/** Modifica varias filas localizadas por ID en una sola escritura (todas o ninguna si falta alguna). */
+export async function modificarVariosPorId(nombre: string, cambios: Map<string, Record<string, unknown>>, pre?: Tabla) {
+  if (!cambios.size) return { filas: 0, antes: new Map<string, Record<string, string>>() };
+  const t = pre || (await leerTabla(nombre));
+  const data: { range: string; values: string[][] }[] = [];
+  const antes = new Map<string, Record<string, string>>();
+  for (const [id, c] of cambios) {
+    const f = filaPorId(t, id);
+    if (!f) throw new ErrorN8n(`${id} ya no existe en ${nombre}. Recarga.`, 409);
+    antes.set(id, aObjeto(t, f.celdas));
+    data.push({ range: `${q(nombre)}!A${f.fila}:${letra(t.cabecera.length - 1)}${f.fila}`, values: [montarFila(t.cabecera, c, f.celdas)] });
+  }
+  const r = await n8n<{ totalUpdatedRows?: number; responses?: unknown[] }>({ op: "sheets", method: "POST", path: "/values:batchUpdate", body: { valueInputOption: "RAW", data } });
+  if (!r.responses && !r.totalUpdatedRows) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  return { filas: data.length, antes };
+}
+
 /** Borra varias filas por ID en una sola llamada (de abajo arriba para no descolocar). */
 export async function borrarPorIds(nombre: keyof typeof GID, ids: string[]) {
   if (!ids.length) return 0;

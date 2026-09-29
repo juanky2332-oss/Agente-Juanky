@@ -1,5 +1,6 @@
 import { manejar } from "@/lib/ruta";
 import { leerIngresos, crearIngreso, modificarIngreso, borrarIngreso, registrarCobro, modificarCobro, borrarCobro, type EntradaIngreso } from "@/lib/ingresosSrv";
+import { pagarVarios, cambiarReparto } from "@/lib/ingresosBloque";
 import { textoCobros, resumir, porFuente, normId, type Ingreso } from "@/lib/ingresos";
 import { escHtml, ErrorN8n } from "@/lib/n8n";
 import { eur, isoAEs, normaliza } from "@/lib/parse";
@@ -39,7 +40,7 @@ function buscar(ings: Ingreso[], q: string) {
 }
 
 export const POST = manejar(async (req: Request) => {
-  const b = (await req.json()) as { accion: string; id?: string; busqueda?: string; filtro?: string; importe?: string | number; fecha?: string; metodo?: string; notas?: string; destino?: string; datos?: EntradaIngreso & { cobroInicial?: number | string } };
+  const b = (await req.json()) as { accion: string; id?: string; busqueda?: string; filtro?: string; importe?: string | number; fecha?: string; metodo?: string; notas?: string; destino?: string; desde?: string; hasta?: string; tipo?: string; negocio?: string; cliente?: string; porcentaje?: string | number; simular?: string | boolean; datos?: EntradaIngreso & { cobroInicial?: number | string } };
   const acc = normaliza(b.accion);
   if (acc === "cobros" || acc === "pendientes") return { resultado: textoCobros(await leerIngresos(), b.filtro || b.busqueda || "") };
   // Para el parte de las 8:00: solo el número de líneas por cobrar (sin cifras, lo pidió así).
@@ -72,6 +73,20 @@ export const POST = manejar(async (req: Request) => {
     const i = (await leerIngresos()).find((x) => x.id === r.ingreso)!;
     return { resultado: `${destino === "yo" ? `✅ Cobro apuntado: te han pagado ${eur(r.importe)}` : `🏦 Apuntado: el cliente ha pagado a Flownexion (tu parte ${eur(r.importe)}). Flownexion te lo debe`} <code>${r.id}</code>\n\n${ficha(i)}` };
   }
+  // Varios de golpe: "el mantenimiento de agosto a septiembre", "#I032 #I033"...
+  // pagar_varios = te ha llegado a TI · cliente_pago_varios = el cliente pagó a Flownexion.
+  const ids = (b.id || "").split(/[\s,;]+|\by\b/i).map((x) => x.trim()).filter((x) => /\d/.test(x));
+  const simular = b.simular === true || /^(s[ií]|true|1)$/i.test(String(b.simular || ""));
+  if (acc === "pagar_varios" || acc === "cobrar_varios" || acc === "cliente_pago_varios") {
+    const destino = acc.startsWith("cliente") || /flow|cliente/i.test(b.destino || "") ? "flownexion" : "yo";
+    const r = await pagarVarios({ ids, busqueda: b.busqueda, tipo: b.tipo, negocio: b.negocio, cliente: b.cliente, desde: b.desde, hasta: b.hasta, destino, fecha: b.fecha || undefined, metodo: b.metodo, notas: b.notas, simular }, false);
+    return { resultado: r.texto };
+  }
+  // Cambiar tu % (reparto) en varios ingresos y la plantilla de los meses que vienen.
+  if (acc === "reparto" || acc === "porcentaje" || acc === "cambiar_porcentaje") {
+    const r = await cambiarReparto({ ids, busqueda: b.busqueda, tipo: b.tipo, negocio: b.negocio, cliente: b.cliente, desde: b.desde, hasta: b.hasta, porcentaje: b.porcentaje ?? "", simular }, false);
+    return { resultado: r.texto + (simular ? "\n\n¿Lo aplico?" : "") };
+  }
   if (acc === "crear" || acc === "alta") {
     const r = await crearIngreso(b.datos || {}, false);
     const i = (await leerIngresos()).find((x) => x.id === r.id)!;
@@ -98,5 +113,5 @@ export const POST = manejar(async (req: Request) => {
     await borrarCobro(normId(b.id, "C"), false);
     return { resultado: `↩️ Cobro ${normId(b.id, "C")} borrado` };
   }
-  throw new ErrorN8n("Acción no válida: cobros, resumen, ver, cobrar, cliente_pago, crear, modificar, borrar, modificar_cobro, borrar_cobro", 400);
+  throw new ErrorN8n("Acción no válida: cobros, resumen, ver, cobrar, cliente_pago, pagar_varios, cliente_pago_varios, reparto, crear, modificar, borrar, modificar_cobro, borrar_cobro", 400);
 });
