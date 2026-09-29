@@ -214,7 +214,7 @@ export async function cambiarReparto(b: EntradaReparto, avisar = true): Promise<
       const rep = leerReparto(p.concepto);
       if (!rep) continue; // sin "(NN % de X €)" no se sabe el total: se deja como está
       const nuevo = r2((rep.total * pct) / 100);
-      if (Math.abs(nuevo - p.importe) < 0.005) continue;
+      if (Math.abs(nuevo - p.importe) < 0.005) { omitidos.push({ ingreso: p.id, concepto: `${p.nombre} (programado)`, motivo: `ya estaba al ${pct} % (${eur(nuevo)}/mes)` }); continue; }
       const pctTxt = String(pct).replace(".", ",");
       cambiosP.set(p.id, { IMPORTE: dec(nuevo), CONCEPTO: conceptoConPorcentaje(p.concepto, pct), NOTAS: p.notas.replace(/\d+(?:[.,]\d+)?\s*% de (\d)/g, `${pctTxt} % de $1`) });
       programados.push({ id: p.id, nombre: p.nombre, antes: p.importe, despues: nuevo });
@@ -224,7 +224,7 @@ export async function cambiarReparto(b: EntradaReparto, avisar = true): Promise<
     porcentaje: pct, cambios, programados, omitidos, simulado: !!b.simular, texto: "",
     diferencia: r2(cambios.reduce((s, c) => s + c.despues - (c.antes || 0), 0)),
   };
-  if (!cambios.length && !programados.length && !sel.lista.length) throw new ErrorN8n("No hay ningún ingreso que encaje con eso", 404);
+  if (!cambios.length && !programados.length && !omitidos.length) throw new ErrorN8n("No hay ningún ingreso que encaje con eso", 404);
   if (!b.simular && (cambios.length || programados.length)) {
     // Primero Cobros y Programados; Ingresos al final: si algo fallara a medias, al repetir la
     // operación los ingresos no cambiados vuelven a entrar y los cobros se reescalan desde ahí.
