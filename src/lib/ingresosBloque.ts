@@ -4,7 +4,7 @@ import "server-only";
 import { leerRangos, aTabla, aObjeto, anadirFilas, modificarVariosPorId, siguienteId } from "./sheets";
 import { ErrorN8n, avisarTelegram, escHtml } from "./n8n";
 import {
-  aCobro, aDestino, montarIngresos, seleccionar, huecoDe, conceptoConPorcentaje, leerReparto, nombreMes, escalarPagosCliente, proyectosFlownexion, aMes,
+  aCobro, aDestino, montarIngresos, nombreIngreso, seleccionar, huecoDe, conceptoConPorcentaje, leerReparto, nombreMes, escalarPagosCliente, proyectosFlownexion, aMes,
   type Ingreso, type Destino, type Seleccion,
 } from "./ingresos";
 import { aProgramado, ocurrencias, idGenerado, filaIngreso, type Programado } from "./programados";
@@ -47,7 +47,7 @@ export interface EntradaVarios extends Seleccion {
 
 export interface ResultadoVarios {
   destino: Destino;
-  apuntados: { cobro: string; ingreso: string; negocio: string; concepto: string; fecha: string | null; importe: number }[];
+  apuntados: { cobro: string; ingreso: string; negocio: string; concepto: string; nombre: string; fecha: string | null; importe: number }[];
   omitidos: { ingreso: string; concepto: string; motivo: string }[];
   creados: string[]; // líneas de meses que aún no existían (creadas desde su programado)
   total: number;
@@ -107,7 +107,7 @@ export async function pagarVarios(b: EntradaVarios, avisar = true): Promise<Resu
   }
   const res: ResultadoVarios = {
     destino,
-    apuntados: apuntar.map((x) => ({ cobro: "", ingreso: x.i.id, negocio: x.i.negocio, concepto: x.i.concepto, fecha: x.i.fecha, importe: x.importe })),
+    apuntados: apuntar.map((x) => ({ cobro: "", ingreso: x.i.id, negocio: x.i.negocio, concepto: x.i.concepto, nombre: nombreIngreso(x.i), fecha: x.i.fecha, importe: x.importe })),
     omitidos,
     creados,
     total: r2(apuntar.reduce((s, x) => s + x.importe, 0)),
@@ -142,7 +142,7 @@ function textoVarios(r: ResultadoVarios) {
         ? `✅ <b>Pagos apuntados</b>: te han pagado <b>${eur(r.total)}</b>`
         : `🏦 <b>Apuntado: el cliente ha pagado a Flownexion</b> (tu parte, ${eur(r.total)}). Flownexion te lo debe`,
   ];
-  for (const a of r.apuntados) L.push(`• <code>#${a.ingreso}</code> ${escHtml(a.concepto)} — <b>${eur(a.importe)}</b>${a.cobro ? ` <code>${a.cobro}</code>` : ""}`);
+  for (const a of r.apuntados) L.push(`• ${a.nombre} — <b>${eur(a.importe)}</b>`);
   if (r.creados.length) L.push(`🆕 Creé la línea de ${r.creados.length === 1 ? "un mes que aún no existía" : r.creados.length + " meses que aún no existían"} (${r.creados.join(", ")}).`);
   if (r.omitidos.length) {
     L.push("", "No toqué:");

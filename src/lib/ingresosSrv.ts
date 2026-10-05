@@ -4,7 +4,7 @@ import "server-only";
 import { leerTabla, leerRangos, aTabla, aObjeto, anadirFila, modificarPorId, modificarVariosPorId, borrarPorIds, siguienteId, filaPorId } from "./sheets";
 import { ErrorN8n, avisarTelegram, escHtml } from "./n8n";
 import {
-  aCobro, aDestino, montarIngresos, NEGOCIOS, normId, conceptoConPorcentaje, escalarPagosCliente,
+  aCobro, aDestino, montarIngresos, NEGOCIOS, normId, nombreIngreso, conceptoConPorcentaje, escalarPagosCliente,
   type Ingreso, type Destino,
 } from "./ingresos";
 import { num, tieneNumero, fechaISO, isoAEs, hoyISO, eur } from "./parse";
@@ -76,7 +76,9 @@ export async function leerIngresos(): Promise<Ingreso[]> {
   return montarIngresos(ti.filas.map((f) => ({ fila: f.fila, o: aObjeto(ti, f.celdas) })), cobros, hoyISO());
 }
 
-const linea = (i: Pick<Ingreso, "id" | "negocio" | "cliente" | "concepto">) => `<code>#${i.id}</code> ${escHtml(i.negocio)} · ${escHtml(i.cliente ? i.cliente + " · " : "")}${escHtml(i.concepto)}`;
+// En el taller, por el nº de pedido (así sabe exactamente cuál es).
+const linea = (i: Pick<Ingreso, "id" | "negocio" | "cliente" | "concepto" | "referencia">) =>
+  i.negocio === "Taller" && i.referencia ? `🔧 ${nombreIngreso(i)}` : `<code>#${i.id}</code> ${escHtml(i.negocio)} · ${escHtml(i.cliente ? i.cliente + " · " : "")}${escHtml(i.concepto)}`;
 
 export async function crearIngreso(e: EntradaIngreso & { cobroInicial?: number | string; fechaCobro?: string; destinoCobro?: string }, avisar = true) {
   const t = await leerTabla("Ingresos");
@@ -88,7 +90,7 @@ export async function crearIngreso(e: EntradaIngreso & { cobroInicial?: number |
   let cobro: string | null = null;
   if (tieneNumero(e.cobroInicial) && num(e.cobroInicial) > 0) cobro = (await registrarCobro({ ingreso: id, importe: e.cobroInicial!, fecha: e.fechaCobro, destino: e.destinoCobro }, false)).id;
   if (avisar)
-    await avisarTelegram(`💰 <b>Nuevo ingreso desde la app</b>\n${linea({ id, negocio: cols.NEGOCIO as Ingreso["negocio"], cliente: cols.CLIENTE || "", concepto: cols.CONCEPTO })}\nImporte: <b>${cols.IMPORTE ? eur(num(cols.IMPORTE)) : "sin precio"}</b>${cobro ? `\nYa cobrado: ${eur(num(e.cobroInicial))}` : ""}`);
+    await avisarTelegram(`💰 <b>Nuevo ingreso desde la app</b>\n${linea({ id, negocio: cols.NEGOCIO as Ingreso["negocio"], cliente: cols.CLIENTE || "", concepto: cols.CONCEPTO, referencia: cols.REFERENCIA || "" })}\nImporte: <b>${cols.IMPORTE ? eur(num(cols.IMPORTE)) : "sin precio"}</b>${cobro ? `\nYa cobrado: ${eur(num(e.cobroInicial))}` : ""}`);
   return { id, cobro };
 }
 

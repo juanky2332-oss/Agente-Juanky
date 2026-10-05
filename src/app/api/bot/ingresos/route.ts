@@ -2,7 +2,7 @@ import { manejar } from "@/lib/ruta";
 import { leerIngresos, crearIngreso, modificarIngreso, borrarIngreso, registrarCobro, modificarCobro, borrarCobro, type EntradaIngreso } from "@/lib/ingresosSrv";
 import { pagarVarios, cambiarReparto, leerProyectos, planMantenimiento } from "@/lib/ingresosBloque";
 import { textoProyectos } from "@/lib/ingresos";
-import { textoCobros, resumir, porFuente, normId, type Ingreso } from "@/lib/ingresos";
+import { textoCobros, resumir, porFuente, normId, nombreIngreso, buscarPorRef, type Ingreso } from "@/lib/ingresos";
 import { escHtml, ErrorN8n } from "@/lib/n8n";
 import { eur, isoAEs, normaliza } from "@/lib/parse";
 import { sincronizarTaller } from "@/lib/tallerSync";
@@ -14,8 +14,8 @@ export const maxDuration = 60;
 
 function ficha(i: Ingreso) {
   const L = [
-    `<code>#${i.id}</code> <b>${escHtml(i.concepto)}</b>`,
-    `Te paga: <b>${i.negocio === "Flownexion" ? "💻 Flownexion" : i.negocio === "Taller" ? "🔧 el taller, directo" : "otros"}</b>${i.negocio === "Flownexion" && i.cliente ? " · " + escHtml(i.cliente) : ""}${i.referencia ? " · " + escHtml(i.referencia) : ""}`,
+    i.negocio === "Taller" && i.referencia ? nombreIngreso(i) : `<code>#${i.id}</code> <b>${escHtml(i.concepto)}</b>`,
+    `Te paga: <b>${i.negocio === "Flownexion" ? "💻 Flownexion" : i.negocio === "Taller" ? "🔧 el taller, directo" : "otros"}</b>${i.negocio === "Flownexion" && i.cliente ? " · " + escHtml(i.cliente) : ""}${i.referencia && i.negocio !== "Taller" ? " · " + escHtml(i.referencia) : ""}`,
     `Fecha del trabajo: ${i.fecha ? isoAEs(i.fecha) : "⚠️ sin fecha"}`,
     i.importe === null ? "Importe: sin precio todavía" : `Importe: <b>${eur(i.importe)}</b>${i.totalTrabajo && i.porcentaje ? ` (${i.porcentaje} % de ${eur(i.totalTrabajo)})` : ""}`,
     `Te han pagado a ti: ${eur(i.cobrado)} · Te deben: <b>${eur(i.pendiente)}</b> · ${i.estado === "retenido" ? "lo tiene Flownexion" : i.estado}${i.vencido ? " 🔴 vencido" : ""}`,
@@ -32,8 +32,8 @@ function ficha(i: Ingreso) {
 }
 
 function buscar(ings: Ingreso[], q: string) {
-  const exacto = ings.find((x) => x.id === normId(q));
-  if (exacto) return [exacto];
+  const exacto = buscarPorRef(ings, q);
+  if (exacto.length) return exacto;
   const ps = normaliza(q).split(" ").filter(Boolean);
   return ings.filter((x) => {
     const t = " " + normaliza(`${x.negocio} ${x.cliente} ${x.concepto} ${x.referencia} ${x.notas}`) + " ";
@@ -48,9 +48,21 @@ export const POST = manejar(async (req: Request) => {
   return r;
 });
 
+/** Él puede decir el nº de pedido en vez del #ID: se traduce aquí (si el pedido tiene varias líneas, pregunta). */
+async function resolverId(x: string | undefined, prefijo = "I") {
+  if (!x || prefijo !== "I") return x;
+  const t = x.trim().replace(/^#/, "");
+  if (/^[a-z]?\s*0*\d{1,3}$/i.test(t)) return x; // #I012, 12: es un ID
+  const xs = buscarPorRef(await leerIngresos(), t);
+  if (xs.length === 1) return xs[0].id;
+  if (xs.length > 1) throw new ErrorN8n("Ese pedido tiene varias líneas, dime cuál:\n" + xs.map((i) => "• " + nombreIngreso(i) + (i.pendiente > 0.005 ? ` — te deben ${eur(i.pendiente)}` : "")).join("\n"), 400);
+  return x;
+}
+
 async function accion(req: Request) {
   const b = (await req.json()) as { accion: string; id?: string; busqueda?: string; filtro?: string; importe?: string | number; fecha?: string; metodo?: string; notas?: string; destino?: string; desde?: string; hasta?: string; tipo?: string; negocio?: string; cliente?: string; porcentaje?: string | number; simular?: string | boolean; datos?: EntradaIngreso & { cobroInicial?: number | string } };
   const acc = normaliza(b.accion);
+  if (b.id && !/cobro/.test(acc) && !/varios|reparto|porcentaje/.test(acc)) b.id = await resolverId(b.id);
   if (acc === "cobros" || acc === "pendientes") return { resultado: textoCobros(await leerIngresos(), b.filtro || b.busqueda || "") };
   // Para el parte de las 8:00: solo el número de líneas por cobrar (sin cifras, lo pidió así).
   if (acc === "contar") return { resultado: String(resumir(await leerIngresos()).nPendientes) };
@@ -71,7 +83,7 @@ async function accion(req: Request) {
   if (acc === "ver" || acc === "buscar") {
     const xs = buscar(await leerIngresos(), b.id || b.busqueda || "");
     if (!xs.length) return { resultado: "No encuentro ningún ingreso con eso." };
-    if (xs.length > 6) return { resultado: `Hay ${xs.length}. Los primeros:\n` + xs.slice(0, 12).map((i) => `<code>#${i.id}</code> ${escHtml(i.concepto)} — pendiente ${eur(i.pendiente)}`).join("\n") };
+    if (xs.length > 6) return { resultado: `Hay ${xs.length}. Los primeros:\n` + xs.slice(0, 12).map((i) => `• ${nombreIngreso(i)} — pendiente ${eur(i.pendiente)}`).join("\n") };
     return { resultado: xs.map(ficha).join("\n\n") };
   }
   // cobrar = el dinero te ha llegado a TI. cliente_pago = el cliente ha pagado a Flownexion (a ti aún no).

@@ -63,6 +63,41 @@ export interface Ingreso {
   ultimoCobro: string | null;
 }
 
+/** Nº de pedido y OCC de un trabajo del taller (de REFERENCIA: "OCC 88901 · pedido 4500127926"). */
+export function pedidoDe(referencia: string): { pedido: string; occ: string } {
+  const r = String(referencia || "");
+  return { pedido: r.match(/\bpedido\s+(\S+)/i)?.[1] || "", occ: r.match(/\bOCC\s+(\S+)/i)?.[1] || "" };
+}
+
+/**
+ * Cómo se nombra un ingreso en Telegram y avisos (texto ya escapado para HTML). En el taller
+ * manda el Nº DE PEDIDO (es como Juanky los reconoce): «Pedido 4500127926 · boquilla (OCC 88901)».
+ * El #ID va al final y pequeño, solo para los comandos (/cobrado #I012).
+ */
+export function nombreIngreso(i: Pick<Ingreso, "id" | "negocio" | "concepto" | "referencia">, conId = true): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const { pedido, occ } = pedidoDe(i.referencia);
+  const id = conId ? ` <code>#${i.id}</code>` : "";
+  if (i.negocio === "Taller" && (pedido || occ))
+    return `<b>${pedido ? "Pedido " + esc(pedido) : "OCC " + esc(occ)}</b> · ${esc(i.concepto)}${pedido && occ ? ` (OCC ${esc(occ)})` : ""}${id}`;
+  return `${esc(i.concepto)}${id}`;
+}
+
+/**
+ * Encuentra un ingreso por lo que diga él: "#I012", "I12", "12", o el nº de pedido / OCC de un
+ * trabajo del taller ("4500143806", "pedido 4500143806", "OCC 91433"). Varios con el mismo
+ * pedido (un pedido con varias líneas) → los devuelve todos para que elija.
+ */
+export function buscarPorRef(ings: Ingreso[], x: string): Ingreso[] {
+  const t = String(x || "").trim().replace(/^#/, "");
+  const porId = ings.filter((i) => i.id === normId(t));
+  if (porId.length) return porId;
+  // Números de 4+ cifras (pedido 4500…, OCC 91433) o una OCC con letras («BM») tras la palabra OCC.
+  const n = [...(t.match(/\d[\d\w-]*/g)?.filter((d) => d.length >= 4) || []), ...(t.match(/\bocc\s+(\S+)/i)?.slice(1) || [])];
+  if (!n.length) return [];
+  return ings.filter((i) => i.estado !== "anulado" && n.some((d) => { const p = pedidoDe(i.referencia); return p.pedido === d || p.occ === d; }));
+}
+
 export const COLS_ING = {
   id: "ID", negocio: "NEGOCIO", cliente: "CLIENTE", concepto: "CONCEPTO", referencia: "REFERENCIA", fecha: "FECHA",
   importe: "IMPORTE", totalTrabajo: "TOTAL_TRABAJO", porcentaje: "PORCENTAJE", unidades: "UNIDADES", precioUnit: "PRECIO_UNIT",
@@ -265,7 +300,7 @@ export function textoCobros(ings: Ingreso[], filtro = ""): string {
         L.push(`<i>— ${esc(fuente.replace(/^(Flownexion|Taller) · /, ""))}</i>`);
       }
       L.push(
-        `<code>#${x.id}</code> ${esc(x.concepto)} — <b>${e(x.pendiente)}</b>` +
+        `• ${nombreIngreso(x)} — <b>${e(x.pendiente)}</b>` +
           (x.negocio === "Flownexion"
             ? x.debeFlownexion > 0.005 && x.esperaCliente > 0.005
               ? ` <i>(🏦 ${e(x.debeFlownexion)} ya cobrado del cliente · ⏳ ${e(x.esperaCliente)} sin pagar)</i>`

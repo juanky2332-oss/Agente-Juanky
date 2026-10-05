@@ -94,6 +94,9 @@ function valsApp(o: Record<string, string>, cobrado: number): Vals {
   };
 }
 
+/** Cómo lo reconoce él en los avisos: por el nº de pedido (y la OCC), no por el #ID. */
+const quien = (v: Vals) =>
+  `<b>${v.pedido ? "Pedido " + escHtml(v.pedido) : v.occ ? "OCC " + escHtml(v.occ) : "sin pedido"}</b> · ${escHtml(v.trabajo)}${v.pedido && v.occ ? ` (OCC ${escHtml(v.occ)})` : ""}`;
 const igual = (a: Vals, b: Vals) => CAMPOS.every((k) => a[k] === b[k]);
 const leerFoto = (s: string): Vals | null => {
   try {
@@ -283,7 +286,7 @@ async function sincronizar(): Promise<string[]> {
       const cambiado = Object.fromEntries(Object.entries(cols).filter(([k, v]) => txt(o[k]) !== v));
       if (Object.keys(cambiado).length) {
         cambiosIng.set(id, { ...(cambiosIng.get(id) || {}), ...cambiado });
-        resumen.push(`hoja → bot #${id} ${escHtml(res.trabajo)}: ${Object.keys(cambiado).map((k) => k.toLowerCase()).join(", ")}`);
+        resumen.push(`hoja → bot ${quien(res)}: ${Object.keys(cambiado).map((k) => k.toLowerCase()).join(", ")}`);
       }
       if (res.pagado !== app.pagado) ajustesPago.push({ id, objetivo: num(res.pagado) });
     }
@@ -311,7 +314,7 @@ async function sincronizar(): Promise<string[]> {
   for (const id of bajasHoja) {
     const { o } = ings.get(id)!;
     cambiosIng.set(id, { ESTADO: "anulado", [COL_SYNC]: "", NOTAS: [txt(o.NOTAS), `fila borrada de «${HOJA}» el ${isoAEs(hoyISO())}`].filter(Boolean).join(" · ") });
-    resumen.push(`hoja → bot: borraste la fila de #${id} ${escHtml(o.CONCEPTO)} → anulado`);
+    resumen.push(`hoja → bot: borraste la fila de ${quien(valsApp(o, 0))} → anulado`);
   }
 
   // 3) Escribir. Primero la app (Ingresos/Cobros), luego la hoja.
@@ -326,7 +329,7 @@ async function sincronizar(): Promise<string[]> {
       f.id = id;
       celda(f.fila, c.id, id);
       if (num(f.vals.pagado) > 0) ajustesPago.push({ id, objetivo: num(f.vals.pagado) });
-      resumen.push(`hoja → bot: fila nueva ${f.fila} «${escHtml(f.vals.trabajo)}» → #${id}`);
+      resumen.push(`hoja → bot: trabajo nuevo ${quien(f.vals)}`);
     }
     await anadirFilas("Ingresos", altas, ti.cabecera);
   }
