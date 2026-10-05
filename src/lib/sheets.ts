@@ -33,7 +33,13 @@ export interface Tabla {
 
 const q = (t: string) => encodeURIComponent(`'${t}'`);
 
-export async function leerRangos(rangos: string[], render: "FORMATTED_VALUE" | "FORMULA" = "FORMATTED_VALUE") {
+/** Hora de la última escritura en cada pestaña (lo usa la sincronización con «Trabajos taller»). */
+export const ultimaEscritura: Record<string, number> = {};
+const escrito = (nombre: string) => {
+  ultimaEscritura[nombre] = Date.now();
+};
+
+export async function leerRangos(rangos: string[], render: "FORMATTED_VALUE" | "FORMULA" | "UNFORMATTED_VALUE" = "FORMATTED_VALUE") {
   const path =
     "/values:batchGet?valueRenderOption=" + render + "&" +
     rangos.map((r) => "ranges=" + encodeURIComponent(r)).join("&");
@@ -110,6 +116,7 @@ export async function anadirFila(nombre: string, datos: Record<string, unknown>,
   });
   const rango = r.updates?.updatedRange || "";
   if (!rango) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  escrito(nombre);
   const m = rango.match(/!A(\d+)/);
   return { fila: m ? +m[1] : 0 };
 }
@@ -138,6 +145,7 @@ export async function modificarFila(
     body: { values: [nueva] },
   });
   if (!r.updatedRange) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  escrito(nombre);
   return { fila };
 }
 
@@ -150,6 +158,7 @@ export async function escribirCelda(nombre: string, a1: string, valor: string, u
     body: { values: [[valor]] },
   });
   if (!r.updatedRange) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  escrito(nombre);
 }
 
 export async function borrarFila(nombre: keyof typeof GID, fila: number, comprobar?: (actual: Record<string, string>) => boolean) {
@@ -165,6 +174,7 @@ export async function borrarFila(nombre: keyof typeof GID, fila: number, comprob
     body: { requests: [{ deleteDimension: { range: { sheetId: GID[nombre], dimension: "ROWS", startIndex: fila - 1, endIndex: fila } } }] },
   });
   if (!r.replies) throw new ErrorN8n("Google no confirmó el borrado", 502);
+  escrito(nombre);
 }
 
 /** Añade varias filas de una vez (una sola escritura). */
@@ -178,6 +188,7 @@ export async function anadirFilas(nombre: string, datos: Record<string, unknown>
     body: { values: datos.map((d) => montarFila(cab, d)) },
   });
   if (!r.updates?.updatedRange) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  escrito(nombre);
   return { filas: r.updates.updatedRows || datos.length };
 }
 
@@ -212,6 +223,7 @@ export async function modificarPorId(nombre: string, id: string, cambios: Record
     body: { values: [nueva] },
   });
   if (!r.updatedRange) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  escrito(nombre);
   return { fila: f.fila, antes: aObjeto(t, f.celdas) };
 }
 
@@ -229,6 +241,7 @@ export async function modificarVariosPorId(nombre: string, cambios: Map<string, 
   }
   const r = await n8n<{ totalUpdatedRows?: number; responses?: unknown[] }>({ op: "sheets", method: "POST", path: "/values:batchUpdate", body: { valueInputOption: "RAW", data } });
   if (!r.responses && !r.totalUpdatedRows) throw new ErrorN8n("Google no confirmó la escritura", 502);
+  escrito(nombre);
   return { filas: data.length, antes };
 }
 
@@ -245,6 +258,7 @@ export async function borrarPorIds(nombre: keyof typeof GID, ids: string[]) {
     body: { requests: filas.map((f) => ({ deleteDimension: { range: { sheetId: GID[nombre], dimension: "ROWS", startIndex: f - 1, endIndex: f } } })) },
   });
   if (!r.replies) throw new ErrorN8n("Google no confirmó el borrado", 502);
+  escrito(nombre);
   return filas.length;
 }
 

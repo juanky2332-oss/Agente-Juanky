@@ -1,3 +1,4 @@
+import { sincronizarTaller } from "./tallerSync";
 import "server-only";
 import { leerRangos, aTabla, aObjeto, anadirFilas, type Tabla } from "./sheets";
 import { aMovimiento, analizar, recurrentes, type Movimiento, type Referencia } from "./finanzas";
@@ -77,6 +78,7 @@ export async function cargarFinanzas() {
 }
 
 export async function cargarIngresos() {
+  await sincronizarTaller();
   const [iv, cv, pr] = await leerRangos(["'Ingresos'!A1:Z3000", "'Cobros'!A1:Z5000", "'Programados'!A1:Z300"]);
   let ti = aTabla("Ingresos", iv);
   const gen = await generarProgramados({ gestoria: null, ingresos: ti, programados: aTabla("Programados", pr) }).catch(() => ({ gastos: 0, ingresos: 0 }));

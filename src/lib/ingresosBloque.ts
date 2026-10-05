@@ -10,8 +10,10 @@ import {
 import { aProgramado, ocurrencias, idGenerado, filaIngreso, type Programado } from "./programados";
 import { leerIngresos, fechaHoja, r2, dec } from "./ingresosSrv";
 import { num, tieneNumero, isoAEs, hoyISO, eur, normaliza } from "./parse";
+import { sincronizarTaller } from "./tallerSync";
 
 async function leerTodo() {
+  await sincronizarTaller();
   const [iv, cv, pv] = await leerRangos(["'Ingresos'!A1:Z3000", "'Cobros'!A1:Z5000", "'Programados'!A1:Z300"]);
   const ti = aTabla("Ingresos", iv), tc = aTabla("Cobros", cv), tp = aTabla("Programados", pv);
   const cobros = tc.filas.map((f) => aCobro(f.fila, aObjeto(tc, f.celdas))).filter((c) => c.id);

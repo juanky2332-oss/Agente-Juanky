@@ -8,6 +8,7 @@ import {
   type Ingreso, type Destino,
 } from "./ingresos";
 import { num, tieneNumero, fechaISO, isoAEs, hoyISO, eur } from "./parse";
+import { sincronizarTaller } from "./tallerSync";
 
 export interface EntradaIngreso {
   negocio?: string;
@@ -68,6 +69,7 @@ function aColumnas(e: EntradaIngreso, parcial = false): Record<string, string> {
 }
 
 export async function leerIngresos(): Promise<Ingreso[]> {
+  await sincronizarTaller(); // lo que hayas tocado a mano en «Trabajos taller» entra antes de contestar
   const [iv, cv] = await leerRangos(["'Ingresos'!A1:Z3000", "'Cobros'!A1:Z5000"]);
   const ti = aTabla("Ingresos", iv), tc = aTabla("Cobros", cv);
   const cobros = tc.filas.map((f) => aCobro(f.fila, aObjeto(tc, f.celdas))).filter((c) => c.id);
@@ -79,6 +81,7 @@ const linea = (i: Pick<Ingreso, "id" | "negocio" | "cliente" | "concepto">) => `
 export async function crearIngreso(e: EntradaIngreso & { cobroInicial?: number | string; fechaCobro?: string; destinoCobro?: string }, avisar = true) {
   const t = await leerTabla("Ingresos");
   const id = siguienteId(t, "I");
+  if (/^taller$/i.test(e.negocio || "") && /trabajo/i.test(e.tipo || "trabajo") && e.porcentaje === undefined && e.importe === undefined) e = { ...e, tipo: e.tipo || "trabajo", porcentaje: 10 };
   const cols = aColumnas(e);
   if (!cols.FECHA) cols.FECHA = isoAEs(hoyISO());
   await anadirFila("Ingresos", { ...cols, ID: id, ORIGEN: avisar ? "app" : "telegram" }, t.cabecera);
@@ -93,14 +96,18 @@ export async function modificarIngreso(id: string, e: EntradaIngreso, avisar = t
   // Si cambia el % o el total y no se ha tocado a mano lo tuyo, se recalcula (y el "NN %" del
   // concepto). Los pagos del cliente a Flownexion están en TU parte: se escalan con ella.
   let actual: Ingreso | undefined;
-  if ((e.porcentaje !== undefined || e.totalTrabajo !== undefined) && e.importe === undefined) {
+  // Lo mismo si cambian unidades o precio: sin esto, el importe salía como el 100 % del trabajo.
+  const tocaPrecio = e.unidades !== undefined || e.precioUnit !== undefined;
+  if ((e.porcentaje !== undefined || e.totalTrabajo !== undefined || tocaPrecio) && e.importe === undefined) {
     actual = (await leerIngresos()).find((x) => x.id === id);
     if (!actual) throw new ErrorN8n(`#${id} ya no existe`, 404);
     const n = (v: unknown) => (tieneNumero(v) ? num(v) : null);
-    const total = e.totalTrabajo !== undefined ? n(e.totalTrabajo) : actual.totalTrabajo;
+    const uds = e.unidades !== undefined ? n(e.unidades) : n(actual.unidades);
+    const pu = e.precioUnit !== undefined ? n(e.precioUnit) : actual.precioUnit;
+    const total = e.totalTrabajo !== undefined ? n(e.totalTrabajo) : tocaPrecio && uds !== null && pu !== null ? uds * pu : actual.totalTrabajo;
     const pct = e.porcentaje !== undefined ? n(e.porcentaje) : actual.porcentaje;
     if (total !== null && pct !== null) {
-      e = { ...e, importe: r2((total * pct) / 100) };
+      e = { ...e, totalTrabajo: r2(total), importe: r2((total * pct) / 100) };
       if (e.concepto === undefined && e.porcentaje !== undefined) e.concepto = conceptoConPorcentaje(actual.concepto, pct);
     }
   }

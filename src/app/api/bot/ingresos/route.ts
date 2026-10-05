@@ -5,6 +5,7 @@ import { textoProyectos } from "@/lib/ingresos";
 import { textoCobros, resumir, porFuente, normId, type Ingreso } from "@/lib/ingresos";
 import { escHtml, ErrorN8n } from "@/lib/n8n";
 import { eur, isoAEs, normaliza } from "@/lib/parse";
+import { sincronizarTaller } from "@/lib/tallerSync";
 
 // Entrada del bot de Telegram (comandos /cobros /cobrado y tool "Ingresos" del agente).
 // Devuelve SIEMPRE el texto ya montado: el modelo no calcula ni suma nada (regla de la casa).
@@ -40,7 +41,14 @@ function buscar(ings: Ingreso[], q: string) {
   });
 }
 
+// Después de cada acción, lo que se haya cambiado por Telegram baja también a «Trabajos taller».
 export const POST = manejar(async (req: Request) => {
+  const r = await accion(req);
+  await sincronizarTaller();
+  return r;
+});
+
+async function accion(req: Request) {
   const b = (await req.json()) as { accion: string; id?: string; busqueda?: string; filtro?: string; importe?: string | number; fecha?: string; metodo?: string; notas?: string; destino?: string; desde?: string; hasta?: string; tipo?: string; negocio?: string; cliente?: string; porcentaje?: string | number; simular?: string | boolean; datos?: EntradaIngreso & { cobroInicial?: number | string } };
   const acc = normaliza(b.accion);
   if (acc === "cobros" || acc === "pendientes") return { resultado: textoCobros(await leerIngresos(), b.filtro || b.busqueda || "") };
@@ -129,4 +137,4 @@ export const POST = manejar(async (req: Request) => {
     return { resultado: `↩️ Cobro ${normId(b.id, "C")} borrado` };
   }
   throw new ErrorN8n("Acción no válida: cobros, resumen, ver, cobrar, cliente_pago, pagar_varios, cliente_pago_varios, reparto, proyectos, empezar_mantenimiento, parar_mantenimiento, crear, modificar, borrar, modificar_cobro, borrar_cobro", 400);
-});
+}
