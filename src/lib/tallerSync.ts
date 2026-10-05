@@ -14,7 +14,9 @@ import "server-only";
 //   la hoja se apunta (o se quita) la diferencia como pago.
 // Se ejecuta antes de cada lectura de ingresos y después de cada escritura (app y Telegram).
 import { leerRangos, aTabla, aObjeto, col, letra, siguienteId, anadirFilas, modificarVariosPorId, borrarPorIds, escribirCelda, ultimaEscritura, GID, type Tabla } from "./sheets";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { n8n, ErrorN8n, avisarTelegram, escHtml } from "./n8n";
+import { sincronizarFlow } from "./flowSync";
 import { aCobro, type Cobro } from "./ingresos";
 import { num, tieneNumero, normaliza, isoAEs, hoyISO } from "./parse";
 
@@ -128,29 +130,49 @@ const anulado = (o: Record<string, string>) => /anulad|cancelad/i.test(o.ESTADO 
 
 let ultimaSync = 0;
 let enCurso: Promise<void> | null = null;
+// La sincronización de Flownexion usa las funciones normales (crearIngreso, registrarCobro...),
+// que a su vez llaman aquí: dentro de una sincronización, las llamadas anidadas no hacen nada.
+const dentro = new AsyncLocalStorage<boolean>();
 
 /**
- * Sincroniza. Sin cambios desde la última vez (ni escrituras de la app/bot) y hace menos de
- * 4 s, no vuelve a leer: una misma consulta llama varias veces a leerIngresos.
+ * Sincroniza «Trabajos taller» y «Trabajos flownexion». Sin cambios desde la última vez (ni
+ * escrituras de la app/bot) y hace menos de 4 s, no vuelve a leer: una misma consulta llama
+ * varias veces a leerIngresos.
  */
 export async function sincronizarTaller(forzar = false): Promise<void> {
+  if (dentro.getStore()) return;
   if (enCurso) await enCurso.catch(() => {});
-  const tocado = Math.max(ultimaEscritura["Ingresos"] || 0, ultimaEscritura["Cobros"] || 0);
+  const tocado = Math.max(...["Ingresos", "Cobros", "Programados"].map((k) => ultimaEscritura[k] || 0));
   if (!forzar && tocado < ultimaSync && Date.now() - ultimaSync < 4000) return;
-  enCurso = sincronizar();
+  enCurso = dentro.run(true, sincronizarHojas);
   try {
     await enCurso;
-  } catch (e) {
-    // Que un fallo de la hoja no deje al bot sin contestar, pero que no pase en silencio.
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[taller-sync]", msg);
-    await avisarTelegram(`⚠️ <b>No he podido sincronizar «${HOJA}»</b> con los ingresos del bot:\n${escHtml(msg)}`);
   } finally {
     enCurso = null;
   }
 }
 
-async function sincronizar() {
+async function sincronizarHojas() {
+  const lineas: string[] = [];
+  // Cada hoja por separado: si una falla, la otra sigue funcionando.
+  for (const [nombre, fn] of [[HOJA, sincronizar], ["Trabajos flownexion", sincronizarFlow]] as const) {
+    try {
+      lineas.push(...(await fn()));
+    } catch (e) {
+      // Que un fallo de la hoja no deje al bot sin contestar, pero que no pase en silencio.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[sync]", nombre, msg);
+      lineas.push(`⚠️ No he podido sincronizar «${nombre}»: ${escHtml(msg)}`);
+    }
+  }
+  ultimaSync = Date.now();
+  if (lineas.length) console.log("[sync]\n" + lineas.join("\n"));
+  // Aviso por Telegram de lo que entra desde sus hojas (lo que sale del bot ya lo ha pedido él).
+  const aviso = lineas.filter((l) => l.startsWith("hoja → bot") || l.startsWith("⚠️"));
+  if (aviso.length && !process.env.SYNC_SIN_AVISO) await avisarTelegram("📄 <b>Cambios de tus hojas pasados al bot</b>\n" + aviso.map((l) => "• " + l.replace(/^hoja → bot:?\s*/, "")).join("\n"));
+}
+
+async function sincronizar(): Promise<string[]> {
   const inicio = Date.now();
   // La hoja de él sin formato (números de verdad); Ingresos/Cobros con formato, como el resto de la app
   // (se reescriben filas enteras: leerlas sin formato convertiría fechas en números de serie).
@@ -348,8 +370,8 @@ async function sincronizar() {
     await modificarVariosPorId("Ingresos", new Map(altasHoja.map(({ id, v }) => [id, { [COL_SYNC]: foto(v) }])), await leerTablaIngresos());
   }
 
-  ultimaSync = Date.now();
-  if (resumen.length) console.log(`[taller-sync] ${Date.now() - inicio} ms\n` + resumen.join("\n"));
+  if (resumen.length) console.log(`[taller-sync] ${Date.now() - inicio} ms`);
+  return resumen;
 }
 
 async function leerTablaIngresos() {

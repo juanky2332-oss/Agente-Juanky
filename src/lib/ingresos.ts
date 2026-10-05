@@ -78,7 +78,7 @@ export const PAGADOR: Record<Negocio, string> = { Taller: "Taller (te paga direc
 /**
  * De dónde viene el dinero. DOS PAGADORES que no se mezclan:
  *  - TALLER: te paga directo a ti. Tus comisiones (10 % de cada trabajo) y, desde octubre de
- *    2026, el mantenimiento de la app (75 €/mes íntegros).
+ *    2026, el mantenimiento de la app (75 €/mes − 25 € de Supabase = 50 € íntegros).
  *  - FLOWNEXION: el cliente del proyecto paga a Flownexion y después Flownexion te paga tu %.
  *    Un grupo por proyecto ("Proyecto 1 · App del taller", "Proyecto 2 · App de Rodamientos").
  *    Que el cliente del Proyecto 1 sea el taller NO lo convierte en pago del taller.

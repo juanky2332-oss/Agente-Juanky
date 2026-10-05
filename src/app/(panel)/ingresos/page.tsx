@@ -350,7 +350,7 @@ export default function Ingresos() {
         </Tarjeta>
         <Tarjeta titulo="Cómo funciona">
           <ul className="grid gap-1.5 text-sm text-txt-2">
-            <li>• <b>Tuyo</b> es lo que te corresponde: en el taller el 10 % de cada trabajo (y desde octubre de 2026 el mantenimiento de la app, 75 €/mes directo); en Flownexion tu parte del proyecto o del mantenimiento.</li>
+            <li>• <b>Tuyo</b> es lo que te corresponde: en el taller el 10 % de cada trabajo (y desde octubre de 2026 el mantenimiento de la app: 75 €/mes menos 25 € de Supabase = 50 € íntegros, directo); en Flownexion tu parte del proyecto o del mantenimiento.</li>
             <li>• <b>Flownexion va en dos pasos</b>: el cliente paga a Flownexion (🏦, apúntalo con «El cliente ha pagado a Flownexion») y luego Flownexion te paga a ti («Me ha pagado»). Solo lo segundo cuenta como cobrado.</li>
             <li>• <b>Varios meses de golpe</b>: «📅 Pagar varios meses» (elige proyecto y de qué mes a qué mes) o marca las casillas de la lista. <b>Cambiar reparto</b> recalcula tu % en todo (mantenimientos de Flownexion: 30 % consultor + 30 % desarrollador = 60 %).</li>
             <li>• Cada pago es una línea con su <b>fecha</b>: puedes cobrar a medias tantas veces como haga falta. <b>Te deben</b> = tuyo − lo que te ha llegado.</li>
