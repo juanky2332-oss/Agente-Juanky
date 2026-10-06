@@ -69,19 +69,19 @@ export async function crearBorrador(e: { base64?: string; mime?: string; texto?:
 }
 
 /**
- * Añade un borrador con el siguiente ID. Si mandas varias fotos a la vez, dos lecturas pueden
- * coger el mismo ID (pasó: dos B002). Tras escribir se comprueba y, si otra fila llegó antes con
- * ese ID, la nuestra se renumera.
+ * Añade un borrador. El ID sale de la FILA donde Google lo ha escrito («B020» = fila 20): dos
+ * fotos a la vez nunca pueden caer en la misma fila. Con «siguiente ID» pasó dos veces (dos B002 y
+ * dos B013, y al tocar una se cambiaba la otra). En Borradores no se borran filas, así que no se repite.
  */
 async function anadirBorrador(t: Awaited<ReturnType<typeof leerTabla>>, datos: Record<string, string>) {
-  const id = siguienteId(t, "B");
-  const { fila } = await anadirFila("Borradores", { ...datos, ID: id }, t.cabecera);
-  const t2 = await leerTabla("Borradores");
-  const mismas = t2.filas.filter((f) => aObjeto(t2, f.celdas).ID === id);
-  if (mismas.length <= 1 || !fila || mismas[0].fila === fila) return id;
-  const nuevo = siguienteId(t2, "B");
-  await modificarFila("Borradores", fila, { ID: nuevo });
-  return nuevo;
+  const temporal = "B-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const { fila } = await anadirFila("Borradores", { ...datos, ID: temporal }, t.cabecera);
+  if (!fila) return temporal; // sin nº de fila se queda con el temporal (también es único)
+  const id = "B" + String(fila).padStart(3, "0");
+  const usado = t.filas.some((f) => aObjeto(t, f.celdas).ID === id);
+  const final = usado ? `${id}-${fila}` : id;
+  await modificarFila("Borradores", fila, { ID: final }, (o) => o.ID === temporal);
+  return final;
 }
 
 export async function modificarBorrador(id: string, cambios: Partial<FichaBorrador> & CambiosTaller) {
