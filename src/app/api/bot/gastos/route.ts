@@ -1,5 +1,5 @@
 import { manejar } from "@/lib/ruta";
-import { leerGastos, textoConsulta, textoMes, buscarGasto, fichaGasto, modificarGasto, borrarGasto, mandarFacturas, informeCsv } from "@/lib/gastosBot";
+import { leerGastos, textoConsulta, textoMes, buscarGasto, fichaGasto, modificarGasto, borrarGasto, mandarFacturas, informeCsv, deTexto } from "@/lib/gastosBot";
 import { ErrorN8n } from "@/lib/n8n";
 import { normaliza } from "@/lib/parse";
 
@@ -14,7 +14,7 @@ const si = (v: unknown) => v === true || /^(s[ií]|true|1|ok|vale)$/i.test(Strin
 export const POST = manejar(async (req: Request) => {
   const b = (await req.json()) as {
     accion: string; id?: string; busqueda?: string; categoria?: string; proveedor?: string; ambito?: string; desde?: string; hasta?: string; mes?: string;
-    tipo?: string; datos?: Record<string, unknown> | string; confirmar?: string | boolean; clave?: string; zip?: string | boolean; con_facturas?: string | boolean;
+    texto?: string; tipo?: string; datos?: Record<string, unknown> | string; confirmar?: string | boolean; clave?: string; zip?: string | boolean; con_facturas?: string | boolean;
   };
   const f = { busqueda: b.busqueda, categoria: b.categoria, proveedor: b.proveedor, ambito: b.ambito, desde: b.desde, hasta: b.hasta, tipo: b.tipo };
   let datos = b.datos || {};
@@ -25,7 +25,16 @@ export const POST = manejar(async (req: Request) => {
       throw new ErrorN8n("datos tiene que ser un JSON", 400);
     }
   }
-  switch (normaliza(b.accion)) {
+  // Comandos (/gastos /facturas /informe): todo viene en texto libre.
+  const acc0 = normaliza(b.accion);
+  if (acc0 === "texto" || acc0.endsWith("_texto")) {
+    const t = deTexto(b.texto || "");
+    if (acc0 === "facturas_texto") return { resultado: (await mandarFacturas({ ...t, zip: /zip/i.test(b.texto || "") })).texto };
+    if (acc0 === "informe_texto") return { resultado: (await informeCsv({ ...t, conFacturas: /factura/i.test(b.texto || "") })).texto };
+    if (!b.texto?.trim() || t.soloMes) return { resultado: textoMes(await leerGastos(), t.soloMes) };
+    return { resultado: textoConsulta(await leerGastos(), t) };
+  }
+  switch (acc0) {
     case "consulta":
     case "cuanto":
       return { resultado: textoConsulta(await leerGastos(), f) };

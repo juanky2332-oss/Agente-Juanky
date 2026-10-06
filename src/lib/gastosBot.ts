@@ -254,3 +254,31 @@ export async function informeCsv(f: Filtro & { conFacturas?: boolean }) {
   if (f.conFacturas) L.push((await mandarFacturas({ ...f, zip: true })).texto);
   return { texto: L.join("\n\n") };
 }
+
+/**
+ * Texto libre de un comando (/gastos luz este año · /facturas iberdrola T3 · /informe agosto a
+ * septiembre) → filtro: periodo + categoría + lo que sobre como proveedor/búsqueda.
+ */
+export function deTexto(texto: string): Filtro & { soloMes?: string } {
+  let t = " " + normaliza(texto).replace(/[,.;]/g, " ").replace(/\s+/g, " ") + " ";
+  const f: Filtro & { soloMes?: string } = {};
+  const MES = "(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|sept|oct|nov|dic)";
+  const P = `(?:este ano|ano pasado|este mes|mes pasado|(?:t|q)[1-4](?: \d{4})?|[1-4](?:er|o|º)? trimestre(?: \d{4})?|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}/\d{4}|${MES}(?: (?:de )?\d{4})?|\d{4})`;
+  const rango2 = t.match(new RegExp(`(?:del? |desde )?(${P}) (?:a|al|hasta|-) (${P})(?= )`));
+  if (rango2) { f.desde = rango2[1]; f.hasta = rango2[2]; t = t.replace(rango2[0], " "); }
+  else {
+    const uno = t.match(new RegExp(` (?:en |de |del )?(${P})(?= )`));
+    if (uno) { f.desde = uno[1]; t = t.replace(uno[0], " "); }
+  }
+  const resto: string[] = [];
+  for (const w of t.trim().split(" ").filter(Boolean)) {
+    if (["de", "del", "en", "la", "el", "los", "las", "y", "mis", "gastos", "facturas", "factura", "gasto", "cuanto", "todo", "todas", "todos"].includes(w)) continue;
+    const c = !f.categoria && w.length >= 3 ? categoriaDe(w) : "";
+    if (c) f.categoria = w;
+    else resto.push(w);
+  }
+  if (resto.length) f.busqueda = resto.join(" ");
+  // «/gastos septiembre» (solo un mes) = resumen de ese mes.
+  if (!f.categoria && !f.busqueda && f.desde && !f.hasta && aMes(f.desde) && !/^\d{4}$|ano|trimestre|^(t|q)\d/.test(f.desde)) f.soloMes = f.desde;
+  return f;
+}
