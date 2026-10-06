@@ -157,8 +157,16 @@ export const urlRevisar = (id: string) => `${APP}/gastos?borrador=${id}`;
 /** Tarjeta de cualquier borrador (las del taller necesitan los ingresos para nombrar cada pedido). */
 export async function tarjetaDe(b: Borrador) {
   if (!b.taller) return tarjeta(b);
-  const [ings, h] = await Promise.all([leerIngresos(), historialTaller()]);
-  return tarjetaTaller(b.id, b.estado, b.taller, ings, h);
+  const [ings, todos] = await Promise.all([leerIngresos(), todosBorradores()]);
+  return tarjetaTaller(b.id, b.estado, b.estado === "pendiente" ? alDia(b, ings, todos) : b.taller, ings, historialDe(todos));
+}
+
+/** Una factura pendiente, recalculada con los ingresos y facturas de AHORA (los avisos guardados envejecen). */
+function alDia(b: Borrador, ings: Ings, todos: Borrador[]) {
+  const t0 = b.taller!;
+  const nn = limpiaPedido(t0.numero);
+  const ya = nn ? todos.find((x) => x.id !== b.id && x.taller && x.estado === "guardado" && limpiaPedido(x.taller.numero) === nn) : null;
+  return montarTaller({ numero: t0.numero, fecha: t0.fecha, base: t0.base, iva: t0.iva, total: t0.total, lineas: t0.lineas }, ings, ya ? [`🚫 Esta factura YA ESTÁ APUNTADA (${ya.id}): no se apuntará otra vez. Descártala.`] : []);
 }
 
 /** Todos los borradores (para el historial de facturas de cada pedido). */
@@ -174,9 +182,10 @@ export async function historialTaller() {
 
 /** Seguimiento de los pedidos de un borrador del taller (texto plano, para la app). */
 export async function seguimientoDe(b: Borrador) {
-  if (!b.taller) return [];
-  const [ings, h] = await Promise.all([leerIngresos(), historialTaller()]);
-  return seguimientoFactura(b.taller, b.estado, ings, h);
+  if (!b.taller) return { taller: null, seguimiento: [] };
+  const [ings, todos] = await Promise.all([leerIngresos(), todosBorradores()]);
+  const taller = b.estado === "pendiente" ? alDia(b, ings, todos) : b.taller;
+  return { taller, seguimiento: seguimientoFactura(taller, b.estado, ings, historialDe(todos)) };
 }
 
 /** Dónde revisarlo en la app. */

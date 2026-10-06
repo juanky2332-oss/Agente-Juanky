@@ -16,7 +16,10 @@ export const GET = manejar(async (req: Request) => {
   const clase = u.searchParams.get("clase");
   const xs = await borradoresPendientes(clase === "taller" || clase === "gastos" ? clase : "todas");
   // Las del taller llevan el seguimiento de cada pedido (lo facturado, lo cobrado y si falta algo).
-  if (clase === "taller") return { borradores: await Promise.all(xs.map(async (b) => ({ ...b, seguimiento: await seguimientoDe(b) }))) };
+  if (clase === "taller") return { borradores: await Promise.all(xs.map(async (b) => {
+      const s = await seguimientoDe(b);
+      return { ...b, taller: s.taller || b.taller, seguimiento: s.seguimiento };
+    })) };
   return { borradores: xs };
 });
 
