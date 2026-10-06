@@ -8,7 +8,7 @@ import { sincronizarTaller } from "@/lib/tallerSync";
 // Respuesta: { resultado (html), id, estado, url, clase, boton } — el bot pinta los botones si
 // estado=pendiente. clase "taller" = factura DEL TALLER: confirmar = apuntar tu 10 % como cobrado.
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 export const POST = manejar(async (req: Request) => {
   const b = (await req.json()) as { accion: string; id?: string; origen?: string; nombre?: string; base64?: string; mime?: string; texto?: string; enlace?: string; datos?: (Partial<FichaBorrador> & CambiosTaller) | string; forzar?: boolean };
