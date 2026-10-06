@@ -8,6 +8,7 @@ import { eur, eur0, isoAEs, hoyISO, num, normaliza, mesClave } from "@/lib/parse
 import { mesesEntre } from "@/lib/finanzas";
 import { PagarVarios, CambiarReparto } from "@/components/ingresos/Bloque";
 import Proyectos from "@/components/ingresos/Proyectos";
+import FacturasTaller from "@/components/ingresos/FacturasTaller";
 
 interface Datos { ingresos: Ingreso[]; resumen: Record<"Todo" | "Taller" | "Flownexion" | "Otro", ResumenNegocio>; programados: ProgramadoApi[] }
 type Vista = "Todo" | "Taller" | "Flownexion" | "Otro";
@@ -273,6 +274,8 @@ export default function Ingresos() {
           </table>
         </div>
       </Tarjeta>
+
+      <FacturasTaller alCambiar={recargar} />
 
       <Tarjeta
         className="mb-4"

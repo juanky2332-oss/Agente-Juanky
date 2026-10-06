@@ -4,6 +4,7 @@ import "server-only";
 import { n8n, ErrorN8n } from "./n8n";
 import { CATEGORIAS, clasificar } from "./finanzas";
 import { num, fechaISO } from "./parse";
+import type { LineaFactura } from "./facturaTaller";
 
 const PROMPT = `Eres un lector de facturas españolas. Lee TODO el documento antes de responder.
 Devuelve SOLO un JSON con esta forma (usa null si un dato NO aparece; NUNCA lo inventes ni lo estimes):
@@ -33,6 +34,8 @@ Devuelve SOLO un JSON con esta forma (usa null si un dato NO aparece; NUNCA lo i
    "descuentos": string|null,
    "cargos_extra": [ {"concepto": string, "importe": number} ]  (servicios añadidos, alquileres, mantenimientos, seguros, recargos: todo lo que NO es consumo ni potencia ni impuestos)
  },
+ "cliente": "razón social del DESTINATARIO de la factura"|null,
+ "lineas": [ {"pedido": "nº de pedido del cliente de esa línea ('Su pedido', 'Pedido', 'Ped.', 'S/Ref'; en facturas de taller suele ser 4500… o venir en la cabecera del albarán que agrupa varias líneas: aplícalo a TODAS sus líneas)"|null, "occ": "nº de OCC / orden / albarán de esa línea"|null, "descripcion": string, "unidades": number|null, "precio": precio unitario SIN IVA|null, "importe": importe de la línea SIN IVA} ]  (todas las líneas facturadas, en orden; [] si no hay detalle),
  "observaciones": "qué llama la atención de esta factura para ahorrar (cargos extra, penalizaciones, tarifa cara, permanencia...). Frases cortas. Solo lo que se ve en el documento.",
  "confianza": número de 0 a 1
 }
@@ -52,7 +55,7 @@ export async function leerFactura({ base64, mime, texto }: { base64?: string; mi
       body: {
         model: "gpt-5.4-mini",
         reasoning_effort: "low",
-        max_completion_tokens: 3000,
+        max_completion_tokens: 6000,
         response_format: { type: "json_object" },
         messages: [{ role: "user", content: [adjunto, { type: "text", text: PROMPT }] }],
       },
@@ -90,7 +93,22 @@ export async function leerFactura({ base64, mime, texto }: { base64?: string; mi
   }
   if (d.nif_proveedor) limpio.nif = d.nif_proveedor;
   if (d.observaciones) limpio.observaciones = d.observaciones;
+  // Líneas con su nº de pedido (las facturas del taller se casan por ahí con tus trabajos).
+  const vacio = (v: unknown) => v === null || v === undefined || v === "";
+  const lineas: LineaFactura[] = (Array.isArray(d.lineas) ? (d.lineas as Record<string, unknown>[]) : [])
+    .map((l) => ({
+      pedido: String(l?.pedido ?? "").trim(),
+      occ: String(l?.occ ?? "").trim(),
+      descripcion: String(l?.descripcion ?? "").trim(),
+      unidades: vacio(l?.unidades) ? null : num(l.unidades),
+      precio: vacio(l?.precio) ? null : num(l.precio),
+      importe: num(l?.importe),
+    }))
+    .filter((l) => l.importe || l.descripcion);
   return {
+    lineas,
+    nif: String(d.nif_proveedor || ""),
+    cliente: String(d.cliente || ""),
     ficha: {
       tipo: ["gasto", "ingreso", "presupuesto", "albaran"].includes(String(d.tipo)) ? d.tipo : "gasto",
       proveedor,

@@ -82,7 +82,7 @@ export default function Gastos() {
   const [sinDudosos, setSinDudosos] = useState(false);
   const c = useColores();
   // Facturas que llegaron por Telegram y esperan confirmación
-  const bor = useApi<{ borradores: { id: string; fecha: string; ficha: Record<string, unknown> & { proveedor: string; total: number }; duplicado: { fila: number } | null; enlace: string }[] }>("/api/borradores");
+  const bor = useApi<{ borradores: { id: string; fecha: string; ficha: Record<string, unknown> & { proveedor: string; total: number }; duplicado: { fila: number } | null; enlace: string }[] }>("/api/borradores?clase=gastos");
   const [revisando, setRevisando] = useState<string | null>(null);
   useEffect(() => {
     const id = new URLSearchParams(location.search).get("borrador");
