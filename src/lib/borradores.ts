@@ -10,7 +10,7 @@ import { ambitoPorDefecto, CATEGORIAS, type Categoria } from "./finanzas";
 import { ErrorN8n, escHtml } from "./n8n";
 import { num, eur, isoAEs, hoyISO, fechaISO } from "./parse";
 import { leerIngresos, modificarIngreso, crearIngreso, registrarCobro } from "./ingresosSrv";
-import { esFacturaTaller, casarFactura, revisarFactura, tarjetaTaller, limpiaPedido, type DatosTaller, type LineaFactura } from "./facturaTaller";
+import { esFacturaTaller, casarFactura, revisarFactura, tarjetaTaller, limpiaPedido, historialDe, seguimientoFactura, type DatosTaller, type LineaFactura } from "./facturaTaller";
 
 export interface FichaBorrador {
   tipo: string; proveedor: string; concepto: string; doc: string; fecha: string; base: number; iva: number; total: number;
@@ -156,7 +156,27 @@ export const urlRevisar = (id: string) => `${APP}/gastos?borrador=${id}`;
 
 /** Tarjeta de cualquier borrador (las del taller necesitan los ingresos para nombrar cada pedido). */
 export async function tarjetaDe(b: Borrador) {
-  return b.taller ? tarjetaTaller(b.id, b.estado, b.taller, await leerIngresos()) : tarjeta(b);
+  if (!b.taller) return tarjeta(b);
+  const [ings, h] = await Promise.all([leerIngresos(), historialTaller()]);
+  return tarjetaTaller(b.id, b.estado, b.taller, ings, h);
+}
+
+/** Todos los borradores (para el historial de facturas de cada pedido). */
+async function todosBorradores() {
+  const t = await leerTabla("Borradores");
+  return t.filas.map((f) => aBorrador(aObjeto(t, f.celdas))).filter((b) => b.id);
+}
+
+/** Facturas del taller ya confirmadas, por trabajo: base del seguimiento de cada pedido. */
+export async function historialTaller() {
+  return historialDe(await todosBorradores());
+}
+
+/** Seguimiento de los pedidos de un borrador del taller (texto plano, para la app). */
+export async function seguimientoDe(b: Borrador) {
+  if (!b.taller) return [];
+  const [ings, h] = await Promise.all([leerIngresos(), historialTaller()]);
+  return seguimientoFactura(b.taller, b.estado, ings, h);
 }
 
 /** Dónde revisarlo en la app. */
@@ -182,8 +202,14 @@ async function crearBorradorTaller(r: Leida, ings: Ings, e: { enlace?: string; o
   // ¿Ya la mandó antes? (mismo nº de factura del taller ya apuntado o esperando)
   const num0 = limpiaPedido(f.doc);
   if (num0) {
-    const previa = t.filas.map((x) => aBorrador(aObjeto(t, x.celdas))).find((x) => x.taller && x.estado !== "descartado" && limpiaPedido(x.taller.numero) === num0);
-    if (previa) extra.push(`Esta factura ya me la mandaste (${previa.id}, ${previa.estado === "guardado" ? "ya apuntada" : "sin confirmar"}).`);
+    const previas = t.filas.map((x) => aBorrador(aObjeto(t, x.celdas))).filter((x) => x.taller && x.estado !== "descartado" && limpiaPedido(x.taller.numero) === num0);
+    const apuntada = previas.find((x) => x.estado === "guardado");
+    if (apuntada) extra.push(`🚫 Esta factura YA ESTÁ APUNTADA (${apuntada.id}). Si confirmas, no se apuntará otra vez.`);
+    else
+      for (const x of previas.filter((y) => y.estado === "pendiente")) {
+        await modificarPorId("Borradores", x.id, { ESTADO: "descartado" }).catch(() => null);
+        extra.push(`Sustituye a ${x.id}, la misma factura que me mandaste antes (esa queda descartada).`);
+      }
   }
   if (r.confianza !== null && r.confianza < 0.7) extra.push("La lectura no es muy segura: revisa los importes.");
   const taller = montarTaller({ numero: f.doc, fecha: f.fecha || hoyISO(), base: f.base, iva: f.iva, total: f.total, lineas: r.lineas }, ings, extra);
@@ -229,6 +255,9 @@ async function confirmarTaller(b: Borrador) {
   await modificarPorId("Borradores", b.id, { ESTADO: "aplicando" });
   try {
     const t0 = b.taller!;
+    const nn = limpiaPedido(t0.numero);
+    const yaApuntada = nn ? (await todosBorradores()).find((x) => x.id !== b.id && x.taller && x.estado === "guardado" && limpiaPedido(x.taller.numero) === nn) : null;
+    if (yaApuntada) throw new ErrorN8n(`🚫 La factura ${t0.numero} ya está apuntada (${yaApuntada.id}): no la apunto dos veces. Descarta esta.`, 400);
     const taller = montarTaller({ numero: t0.numero, fecha: t0.fecha, base: t0.base, iva: t0.iva, total: t0.total, lineas: t0.lineas }, await leerIngresos());
     if (!taller.casos.length) throw new ErrorN8n("No he casado ningún pedido de esta factura: no apunto nada.", 400);
     const nota = `Factura del taller${taller.numero ? " nº " + taller.numero : ""}${taller.fecha ? " del " + isoAEs(taller.fecha) : ""}`;
@@ -237,6 +266,7 @@ async function confirmarTaller(b: Borrador) {
       if (!c.id) {
         const r = await crearIngreso({ negocio: "Taller", tipo: "trabajo", concepto: c.concepto, referencia: [c.occ && "OCC " + c.occ, "pedido " + c.pedido].filter(Boolean).join(" · "), unidades: String(c.unidades ?? 1), precioUnit: c.precio, totalTrabajo: c.totalFactura, porcentaje: c.porcentaje, notas: nota, cobroInicial: c.aCobrar > 0.005 ? c.aCobrar : undefined, destinoCobro: "yo" }, false);
         altas.push(r.id);
+        c.id = r.id;
         if (r.cobro) cobros.push(r.cobro);
         continue;
       }

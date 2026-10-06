@@ -190,8 +190,6 @@ function caso(ks: number[], i: Ingreso | null, lineas: LineaFactura[], pedido: s
     if (!mismoPrecio && i.precioUnit && precioFac) av.push(`Ojo: precio por unidad distinto (app ${eur(i.precioUnit)}, factura ${eur(precioFac)}).`);
     if (yaCobrado > 0.005) av.push(`Ya te habían pagado ${eur(yaCobrado)} de este trabajo.`);
     if (tuyo > pendiente + 0.005) av.push(`Solo quedaban ${eur(pendiente)} por cobrar de este trabajo: apunto eso.`);
-    const queda = r2(pendiente - aCobrar);
-    av.push(queda > 0.005 ? `Después quedarán ${eur(queda)} por cobrar (lo que falte por entregar).` : "Con esta queda cobrado entero.");
   } else if (cambiaPrecio) av.push(`En la app tenías ${eur(totalApp)}; la factura dice ${eur(totalFactura)}: me quedo con la factura.`);
   if (i && !parcial && yaCobrado > 0.005) av.push(aCobrar > 0.005 ? `Ya te habían pagado ${eur(yaCobrado)}: apunto lo que falta.` : `Ya te lo habían pagado entero (${eur(yaCobrado)}): no apunto nada.`);
   if (!parcial && tuyo < yaCobrado - 0.005) av.push(`⚠️ Te pagaron más (${eur(yaCobrado)}) de lo que sale por la factura (${eur(tuyo)}).`);
@@ -225,7 +223,8 @@ function nombreCaso(c: CasoTaller, ings: Ingreso[]) {
 }
 
 /** Tarjeta de Telegram de una factura del taller. */
-export function tarjetaTaller(id: string, estado: string, d: DatosTaller, ings: Ingreso[]) {
+export function tarjetaTaller(id: string, estado: string, d: DatosTaller, ings: Ingreso[], h: Historial = new Map()) {
+  const seg = estado === "descartado" ? [] : seguimientoFactura(d, estado, ings, h);
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const totalCobro = r2(d.casos.reduce((s, c) => s + c.aCobrar, 0));
   const L: string[] = [];
@@ -240,17 +239,104 @@ export function tarjetaTaller(id: string, estado: string, d: DatosTaller, ings: 
     const detalle = lf?.unidades && lf.precio && Math.abs(lf.unidades * lf.precio - c.totalFactura) < 0.02 ? `${String(lf.unidades).replace(".", ",")} × ${eur(lf.precio)} = ` : "";
     L.push(`   Factura: ${detalle}<b>${eur(c.totalFactura)}</b> → tu ${String(c.porcentaje).replace(".", ",")} % = <b>${eur(c.tuyo)}</b>${c.aCobrar > 0.005 && Math.abs(c.aCobrar - c.tuyo) > 0.005 ? ` · se apuntan <b>${eur(c.aCobrar)}</b>` : ""}`);
     if (c.aviso) L.push(`   <i>${esc(c.aviso)}</i>`);
+    // Seguimiento del pedido: lo facturado, lo cobrado y si falta algo (tras esta factura).
+    const sg = seg.find((x) => x.pedido === c.pedido && x.id === c.id);
+    if (sg?.lineas.length) L.push(`   <i>${estado === "pendiente" ? "Si confirmas:" : "Estado del pedido:"}</i>`, ...sg.lineas.map((t) => "   " + esc(t)));
   }
   if (estado === "pendiente") {
     for (const a of d.avisos) L.push(`⚠️ ${esc(a)}`);
     L.push("", `💶 <b>Te toca: ${eur(totalCobro)}</b>`);
+    L.push(resumenSeguimiento(seg));
     // Lo que queda pendiente del taller que NO viene en esta factura (para que lo tenga a la vista).
     const enFactura = new Set(d.casos.map((c) => c.id).filter(Boolean));
     const resto = ings.filter((i) => i.negocio === "Taller" && /trabajo/i.test(i.tipo) && i.pendiente > 0.005 && !enFactura.has(i.id));
     if (resto.length) L.push(`<i>Del taller te quedarían por cobrar ${resto.length} trabajos más (${eur(r2(resto.reduce((s, i) => s + i.pendiente, 0)))}).</i>`);
     L.push("", totalCobro > 0.005 ? "¿Está bien? Pulsa ✅ y lo apunto como <b>pagado</b>. Si algo no cuadra, dímelo (p. ej. <i>«el pedido 4500144834 son 1.480»</i>)." : "No hay nada que apuntar: puedes descartarla.");
   } else if (estado === "guardado" && d.hechos) {
+    L.push("", resumenSeguimiento(seg));
     L.push("", `<i>Pagos ${d.hechos.cobros.map((x) => esc(x)).join(", ") || "—"}${d.hechos.altas.length ? ` · trabajos nuevos ${d.hechos.altas.map((x) => "#" + esc(x)).join(", ")}` : ""}</i>`);
   }
   return L.join("\n");
+}
+
+// ─── Seguimiento de cada pedido: qué se ha facturado, qué te han pagado y qué falta ─────────
+
+/** Una factura del taller ya confirmada, vista desde un trabajo. */
+export interface FacturaHecha { borrador: string; numero: string; fecha: string; uds: number | null; importe: number; cobrado: number }
+/** id del ingreso → facturas confirmadas de ese trabajo (en orden). */
+export type Historial = Map<string, FacturaHecha[]>;
+
+/** Historial a partir de los borradores del taller ya confirmados. */
+export function historialDe(bs: { id: string; estado: string; taller: DatosTaller | null }[]): Historial {
+  const h: Historial = new Map();
+  for (const b of bs) {
+    if (b.estado !== "guardado" || !b.taller) continue;
+    for (const c of b.taller.casos) {
+      if (!c.id) continue;
+      const ls = c.lineas.map((k) => b.taller!.lineas[k]).filter(Boolean);
+      const uds = ls.length && ls.every((l) => l.unidades) ? ls.reduce((s, l) => s + (l.unidades || 0), 0) : null;
+      h.set(c.id, [...(h.get(c.id) || []), { borrador: b.id, numero: b.taller.numero, fecha: b.taller.fecha, uds, importe: c.totalFactura, cobrado: c.aCobrar }]);
+    }
+  }
+  return h;
+}
+
+const fmtN = (n: number) => String(Math.round(n * 1000) / 1000).replace(".", ",");
+
+/**
+ * Estado de un pedido (texto plano, sin HTML). `esta` = la factura que aún no se ha confirmado:
+ * se cuenta como si ya lo estuviera («si confirmas…»). Sin `esta`, es el estado real de ahora.
+ * Dice si falta algo por cobrar de ese pedido o si está todo y cuadra.
+ */
+export function seguimientoPedido(i: Ingreso, facturas: FacturaHecha[], esta?: { numero: string; uds: number | null; importe: number; aCobrar: number }): { lineas: string[]; completo: boolean; cuadra: boolean; falta: number } {
+  const udsApp = Number(String(i.unidades).replace(",", ".")) || null;
+  const total = i.totalTrabajo, tuyo = i.importe ?? 0;
+  const fs = esta ? [...facturas, { borrador: "", numero: esta.numero, fecha: "", uds: esta.uds, importe: esta.importe, cobrado: esta.aCobrar }] : facturas;
+  const udsFac = fs.length && fs.every((f) => f.uds) ? fs.reduce((s, f) => s + (f.uds || 0), 0) : null;
+  const impFac = r2(fs.reduce((s, f) => s + f.importe, 0));
+  const cobrado = r2(i.cobrado + (esta ? esta.aCobrar : 0));
+  const falta = Math.max(0, r2(tuyo - cobrado));
+  const L: string[] = [];
+  L.push(`📦 Pedido entero: ${udsApp ? fmtN(udsApp) + " uds · " : ""}${total !== null ? eur(total) : "sin precio"} → tu parte ${eur(tuyo)}`);
+  if (fs.length)
+    L.push(`🧾 Facturas: ${fs.map((f) => `${f.numero || "sin nº"}${f.uds ? ` (${fmtN(f.uds)} uds · ${eur(f.importe)})` : ` (${eur(f.importe)})`}${esta && f === fs[fs.length - 1] ? " ← esta" : ""}`).join(", ")}`);
+  L.push(`📊 Facturado ${udsFac !== null && udsApp ? `${fmtN(udsFac)} de ${fmtN(udsApp)} uds · ` : ""}${eur(impFac)}${total !== null ? ` de ${eur(total)}` : ""} · cobrado ${eur(cobrado)} de ${eur(tuyo)}`);
+  const pasado = (total !== null && impFac > total + 0.01) || (udsFac !== null && !!udsApp && udsFac > udsApp + 0.001);
+  const facturadoEntero = (total !== null && impFac >= total - 0.01) || (udsFac !== null && !!udsApp && udsFac >= udsApp - 0.001);
+  let cuadra = true;
+  if (pasado) {
+    cuadra = false;
+    L.push("⚠️ No cuadra: se ha facturado más de lo que tenías en este pedido. Revisa si alguna factura está repetida o si el pedido es mayor.");
+  } else if (falta <= 0.005) {
+    L.push(facturadoEntero || !fs.length ? "✅ Pedido completo: cobrado entero. Todo cuadra." : `✅ Cobrado entero (${eur(cobrado)}). Solo veo facturas por ${eur(impFac)}: el resto lo tenías cobrado de antes.`);
+  } else if (facturadoEntero) {
+    cuadra = false;
+    L.push(`⚠️ Está facturado entero pero te faltan ${eur(falta)} por cobrar: revisa los pagos de este pedido.`);
+  } else {
+    const udsFalta = udsFac !== null && udsApp ? r2(udsApp - udsFac) : null;
+    L.push(`⏳ De este pedido te faltan ${eur(falta)}${udsFalta && udsFalta > 0 ? ` (${fmtN(udsFalta)} uds sin facturar todavía)` : total !== null ? ` (${eur(r2(total - impFac))} sin facturar todavía)` : ""}.`);
+  }
+  return { lineas: L, completo: falta <= 0.005, cuadra, falta };
+}
+
+/** Seguimiento de todos los pedidos de una factura (para la tarjeta y la app). */
+export function seguimientoFactura(d: DatosTaller, estado: string, ings: Ingreso[], h: Historial) {
+  return d.casos.map((c) => {
+    const i = c.id ? ings.find((x) => x.id === c.id) : null;
+    if (!i) return { id: c.id, pedido: c.pedido, lineas: estado === "pendiente" ? ["🆕 Pedido nuevo: con esta factura quedaría cobrado entero."] : [], completo: true, cuadra: true, falta: 0 };
+    const ls = c.lineas.map((k) => d.lineas[k]).filter(Boolean);
+    const uds = ls.length && ls.every((l) => l.unidades) ? ls.reduce((s, l) => s + (l.unidades || 0), 0) : null;
+    const previas = h.get(i.id) || [];
+    const s = estado === "pendiente" ? seguimientoPedido(i, previas, { numero: d.numero, uds, importe: c.totalFactura, aCobrar: c.aCobrar }) : seguimientoPedido(i, previas);
+    return { id: i.id, pedido: c.pedido, ...s };
+  });
+}
+
+/** Una línea con la conclusión: ¿está todo o falta algo? */
+function resumenSeguimiento(seg: ReturnType<typeof seguimientoFactura>) {
+  if (!seg.length) return "";
+  const mal = seg.filter((x) => !x.cuadra), faltan = seg.filter((x) => x.cuadra && !x.completo);
+  if (mal.length) return `⚠️ <b>Hay ${mal.length === 1 ? "un pedido que no cuadra" : mal.length + " pedidos que no cuadran"}</b>: míralo arriba.`;
+  if (faltan.length) return `⏳ <b>Te quedan por cobrar ${eur(r2(faltan.reduce((s, x) => s + x.falta, 0)))}</b> de ${faltan.length === 1 ? "este pedido" : "estos pedidos"} (lo que falta por facturar).`;
+  return seg.length === 1 ? "✅ <b>Este pedido queda cobrado entero. Todo cuadra.</b>" : "✅ <b>Todos los pedidos de esta factura quedan cobrados enteros. Todo cuadra.</b>";
 }

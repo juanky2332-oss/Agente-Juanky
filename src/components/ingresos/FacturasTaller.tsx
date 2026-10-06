@@ -6,7 +6,7 @@ import { useApi, Tarjeta, Boton, llamar, avisar } from "@/components/ui";
 import { eur, isoAEs } from "@/lib/parse";
 import type { DatosTaller } from "@/lib/facturaTaller";
 
-type B = { id: string; fecha: string; enlace: string; taller: DatosTaller };
+type B = { id: string; fecha: string; enlace: string; taller: DatosTaller; seguimiento?: { id: string | null; pedido: string; lineas: string[]; completo: boolean; cuadra: boolean }[] };
 
 export default function FacturasTaller({ alCambiar }: { alCambiar: () => void }) {
   const { datos, recargar } = useApi<{ borradores: B[] }>("/api/borradores?clase=taller");
@@ -52,6 +52,16 @@ export default function FacturasTaller({ alCambiar }: { alCambiar: () => void })
                     <b>Pedido {c.pedido}</b> · {c.concepto}{c.id ? <span className="text-txt-3"> #{c.id}</span> : <i> (nuevo)</i>}
                     <div className="text-txt-2">Factura {eur(c.totalFactura)} → tu {c.porcentaje} % = <b>{eur(c.tuyo)}</b>{Math.abs(c.aCobrar - c.tuyo) > 0.005 && ` · se apuntan ${eur(c.aCobrar)}`}</div>
                     {c.aviso && <div className="text-xs text-txt-3">{c.aviso}</div>}
+                    {(() => {
+                      const sg = b.seguimiento?.find((x) => x.pedido === c.pedido && x.id === c.id);
+                      if (!sg?.lineas.length) return null;
+                      return (
+                        <div className={`mt-1 rounded-lg px-2 py-1.5 text-xs ${!sg.cuadra ? "bg-alerta/10" : sg.completo ? "bg-bien/10" : "bg-aviso/10"}`}>
+                          <div className="font-medium text-txt-2">Si confirmas:</div>
+                          {sg.lineas.map((t, j) => <div key={j}>{t}</div>)}
+                        </div>
+                      );
+                    })()}
                   </li>
                 ))}
               </ul>

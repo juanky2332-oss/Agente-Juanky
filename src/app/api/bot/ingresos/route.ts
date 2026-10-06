@@ -6,13 +6,15 @@ import { textoCobros, resumir, porFuente, normId, nombreIngreso, buscarPorRef, t
 import { escHtml, ErrorN8n } from "@/lib/n8n";
 import { eur, isoAEs, normaliza } from "@/lib/parse";
 import { sincronizarTaller } from "@/lib/tallerSync";
+import { historialTaller } from "@/lib/borradores";
+import { seguimientoPedido, type Historial } from "@/lib/facturaTaller";
 
 // Entrada del bot de Telegram (comandos /cobros /cobrado y tool "Ingresos" del agente).
 // Devuelve SIEMPRE el texto ya montado: el modelo no calcula ni suma nada (regla de la casa).
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function ficha(i: Ingreso) {
+function ficha(i: Ingreso, h?: Historial) {
   const L = [
     i.negocio === "Taller" && i.referencia ? nombreIngreso(i) : `<code>#${i.id}</code> <b>${escHtml(i.concepto)}</b>`,
     `Te paga: <b>${i.negocio === "Flownexion" ? "💻 Flownexion" : i.negocio === "Taller" ? "🔧 el taller, directo" : "otros"}</b>${i.negocio === "Flownexion" && i.cliente ? " · " + escHtml(i.cliente) : ""}${i.referencia && i.negocio !== "Taller" ? " · " + escHtml(i.referencia) : ""}`,
@@ -28,6 +30,8 @@ function ficha(i: Ingreso) {
       L.push(`  • ${c.fecha ? isoAEs(c.fecha) : "sin fecha"} · ${eur(c.importe)} · ${c.destino === "flownexion" ? "cliente → Flownexion" : "a ti"}${c.metodo ? " · " + escHtml(c.metodo) : ""} <code>${c.id}</code>`);
   }
   if (i.notas) L.push("📝 " + escHtml(i.notas));
+  // Trabajos del taller: seguimiento del pedido (facturas, lo cobrado y si falta algo).
+  if (h && i.negocio === "Taller" && /trabajo/i.test(i.tipo) && i.importe !== null) L.push("", ...seguimientoPedido(i, h.get(i.id) || []).lineas.map(escHtml));
   return L.join("\n");
 }
 
@@ -84,7 +88,8 @@ async function accion(req: Request) {
     const xs = buscar(await leerIngresos(), b.id || b.busqueda || "");
     if (!xs.length) return { resultado: "No encuentro ningún ingreso con eso." };
     if (xs.length > 6) return { resultado: `Hay ${xs.length}. Los primeros:\n` + xs.slice(0, 12).map((i) => `• ${nombreIngreso(i)} — pendiente ${eur(i.pendiente)}`).join("\n") };
-    return { resultado: xs.map(ficha).join("\n\n") };
+    const h = await historialTaller();
+    return { resultado: xs.map((i) => ficha(i, h)).join("\n\n") };
   }
   // cobrar = el dinero te ha llegado a TI. cliente_pago = el cliente ha pagado a Flownexion (a ti aún no).
   if (acc === "cobrar" || acc === "cobrado" || acc === "cliente_pago" || acc === "pago_cliente") {
@@ -92,7 +97,7 @@ async function accion(req: Request) {
     const destino = acc.includes("cliente") || /flow|cliente/i.test(b.destino || "") ? "flownexion" : "yo";
     const r = await registrarCobro({ ingreso: b.id, importe: b.importe === "" ? undefined : b.importe, fecha: b.fecha || undefined, metodo: b.metodo, notas: b.notas, destino }, false);
     const i = (await leerIngresos()).find((x) => x.id === r.ingreso)!;
-    return { resultado: `${destino === "yo" ? `✅ Cobro apuntado: te han pagado ${eur(r.importe)}` : `🏦 Apuntado: el cliente ha pagado a Flownexion (tu parte ${eur(r.importe)}). Flownexion te lo debe`} <code>${r.id}</code>\n\n${ficha(i)}` };
+    return { resultado: `${destino === "yo" ? `✅ Cobro apuntado: te han pagado ${eur(r.importe)}` : `🏦 Apuntado: el cliente ha pagado a Flownexion (tu parte ${eur(r.importe)}). Flownexion te lo debe`} <code>${r.id}</code>\n\n${ficha(i, await historialTaller())}` };
   }
   // Varios de golpe: "el mantenimiento de agosto a septiembre", "#I032 #I033"...
   // pagar_varios = te ha llegado a TI · cliente_pago_varios = el cliente pagó a Flownexion.

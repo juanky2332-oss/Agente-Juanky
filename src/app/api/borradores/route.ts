@@ -1,5 +1,5 @@
 import { manejar } from "@/lib/ruta";
-import { borradoresPendientes, leerBorrador, confirmarBorrador, descartarBorrador, modificarBorrador, tarjetaDe, type FichaBorrador, type CambiosTaller } from "@/lib/borradores";
+import { borradoresPendientes, leerBorrador, confirmarBorrador, descartarBorrador, modificarBorrador, tarjetaDe, seguimientoDe, type FichaBorrador, type CambiosTaller } from "@/lib/borradores";
 import { avisarTelegram, escHtml } from "@/lib/n8n";
 import { eur } from "@/lib/parse";
 import { sincronizarTaller } from "@/lib/tallerSync";
@@ -14,7 +14,10 @@ export const GET = manejar(async (req: Request) => {
   const id = u.searchParams.get("id");
   if (id) return { borrador: await leerBorrador(id) };
   const clase = u.searchParams.get("clase");
-  return { borradores: await borradoresPendientes(clase === "taller" || clase === "gastos" ? clase : "todas") };
+  const xs = await borradoresPendientes(clase === "taller" || clase === "gastos" ? clase : "todas");
+  // Las del taller llevan el seguimiento de cada pedido (lo facturado, lo cobrado y si falta algo).
+  if (clase === "taller") return { borradores: await Promise.all(xs.map(async (b) => ({ ...b, seguimiento: await seguimientoDe(b) }))) };
+  return { borradores: xs };
 });
 
 export const POST = manejar(async (req: Request) => {
