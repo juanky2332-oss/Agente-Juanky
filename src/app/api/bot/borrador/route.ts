@@ -1,5 +1,5 @@
 import { manejar } from "@/lib/ruta";
-import { crearBorrador, modificarBorrador, confirmarBorrador, descartarBorrador, leerBorrador, borradoresPendientes, tarjetaDe, urlDe, lineaPendiente, type FichaBorrador, type CambiosTaller, type Borrador } from "@/lib/borradores";
+import { crearBorrador, yaVistoCorreo, modificarBorrador, confirmarBorrador, descartarBorrador, leerBorrador, borradoresPendientes, tarjetaDe, urlDe, lineaPendiente, type FichaBorrador, type CambiosTaller, type Borrador } from "@/lib/borradores";
 import { ErrorN8n } from "@/lib/n8n";
 import { normId } from "@/lib/ingresos";
 import { sincronizarTaller } from "@/lib/tallerSync";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 export const POST = manejar(async (req: Request) => {
-  const b = (await req.json()) as { accion: string; id?: string; base64?: string; mime?: string; texto?: string; enlace?: string; datos?: (Partial<FichaBorrador> & CambiosTaller) | string; forzar?: boolean };
+  const b = (await req.json()) as { accion: string; id?: string; origen?: string; base64?: string; mime?: string; texto?: string; enlace?: string; datos?: (Partial<FichaBorrador> & CambiosTaller) | string; forzar?: boolean };
   const id = b.id ? normId(b.id, "B") : "";
   const salida = async (x: Borrador) => ({
     resultado: await tarjetaDe(x),
@@ -30,8 +30,15 @@ export const POST = manejar(async (req: Request) => {
     }
   }
   switch (b.accion) {
-    case "crear":
-      return salida(await crearBorrador({ base64: b.base64, mime: b.mime, texto: b.texto, enlace: b.enlace }));
+    case "crear": {
+      // Del correo (remitente fuera de la lista): cada mensaje se propone UNA vez.
+      const origen = /^correo:/.test(b.origen || "") ? String(b.origen).slice(0, 300) : "telegram";
+      if (origen !== "telegram") {
+        const ya = await yaVistoCorreo(origen);
+        if (ya) return { resultado: "", id: ya.id, estado: "repetido", url: "", clase: "", boton: "" };
+      }
+      return salida(await crearBorrador({ base64: b.base64, mime: b.mime, texto: b.texto, enlace: b.enlace, origen }));
+    }
     case "modificar":
       if (!id) throw new ErrorN8n("¿Qué borrador? (B001…)", 400);
       return salida(await modificarBorrador(id, datos as Partial<FichaBorrador> & CambiosTaller));

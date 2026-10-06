@@ -119,6 +119,9 @@ export async function confirmarBorrador(id: string, forzar = false, cambios?: Pa
     enlace: b.enlace, notas: [f.notas, `Confirmado desde borrador ${b.id}`].filter(Boolean).join(". "), avisar: false, forzar,
   } as never);
   await modificarPorId("Borradores", b.id, { ESTADO: "guardado", FILA: String(r.fila) });
+  // Factura de un remitente del correo que no estaba en la lista: al guardarla, entra en la lista
+  // blanca y sus próximas facturas se apuntan solas (lo que pidió: luz, agua y demás gastos).
+  if (b.origen.startsWith("correo:")) await anadirALista(b).catch(() => null);
   return { ...b, estado: "guardado", fila: String(r.fila) };
 }
 
@@ -148,6 +151,9 @@ export function tarjeta(b: Borrador) {
     if (b.confianza !== null && b.confianza < 0.7) L.push("⚠️ La lectura no es muy segura: revísala.");
     L.push("", "¿Está bien? Pulsa ✅ para guardarla. Si algo no cuadra, dímelo (p. ej. <i>«el total son 92,84»</i>) o revísala en la app.");
   }
+  const de = remitenteDe(b.origen);
+  if (de && b.estado === "pendiente") L.push("", `📧 Ha llegado a tu correo de <b>${escHtml(de)}</b>, que no está en tu lista. Si la guardas, sus próximas facturas entrarán solas.`);
+  if (de && b.estado === "guardado") L.push(`📧 Añadido a tu lista: las próximas facturas de ${escHtml(de)} entrarán solas.`);
   if (b.enlace) L.push(`<a href="${escHtml(b.enlace)}">📎 documento</a>`);
   return L.join("\n");
 }
@@ -296,3 +302,29 @@ export const lineaPendiente = (x: Borrador) =>
   x.taller
     ? `<code>${x.id}</code> 🔧 Factura del taller${x.taller.numero ? " nº " + escHtml(x.taller.numero) : ""} · te toca ${eur(x.taller.casos.reduce((s, c) => s + c.aCobrar, 0))}`
     : `<code>${x.id}</code> ${escHtml(x.ficha?.proveedor || "?")} · ${x.ficha?.total ?? "?"} €`;
+
+// ─── Facturas del correo de remitentes que no están en la lista blanca ───────────────────────
+// ORIGEN = "correo:<id del mensaje de Gmail>:<correo del remitente>".
+
+/** Remitente de un borrador que vino del correo ("" si no vino de ahí). */
+export const remitenteDe = (origen: string) => (String(origen || "").startsWith("correo:") ? String(origen).split(":").slice(2).join(":") : "");
+
+/** ¿Ese correo ya se convirtió en borrador? (el aviso de las 7:50 no lo repite). */
+export async function yaVistoCorreo(origen: string) {
+  const id = String(origen).split(":")[1] || "";
+  if (!id) return null;
+  return (await todosBorradores()).find((x) => x.origen.split(":")[1] === id) || null;
+}
+
+async function anadirALista(b: Borrador) {
+  const dominio = remitenteDe(b.origen).toLowerCase().replace(/^.*@/, "");
+  if (dominio.length < 3) return;
+  const t = await leerTabla("Filtros correo");
+  if (t.filas.some((f) => dominio.includes(String(aObjeto(t, f.celdas).REMITENTE || "").toLowerCase().trim() || "\u0000"))) return;
+  const f = b.ficha;
+  await anadirFila("Filtros correo", {
+    ID: siguienteId(t, "F", 2), ACTIVO: "sí", NOMBRE: f.proveedor || dominio, REMITENTE: dominio, TEXTO: "factura|recibo|invoice|receipt",
+    CATEGORIA: f.categoria || "", AMBITO: f.ambito || "", RECURRENCIA: f.recurrencia || "", PDF: "sí",
+    NOTAS: `Añadido al guardar su factura desde Telegram (${b.id})`,
+  }, t.cabecera);
+}
