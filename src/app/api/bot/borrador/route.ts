@@ -35,7 +35,7 @@ export const POST = manejar(async (req: Request) => {
       const origen = /^correo:/.test(b.origen || "") ? String(b.origen).slice(0, 300) : "telegram";
       if (origen !== "telegram") {
         const ya = await yaVistoCorreo(origen);
-        if (ya) return { resultado: "", id: ya.id, estado: "repetido", url: "", clase: "", boton: "" };
+        if (ya) return { resultado: `Ese correo ya te lo propuse (${ya.id}).`, id: ya.id, estado: "repetido", url: "", clase: "", boton: "" };
       }
       // El PDF del correo se guarda en Drive (como los de la lista blanca), para tenerlo y poder mandártelo luego.
       let enlace = b.enlace || "";
