@@ -5,7 +5,7 @@ import { nuevoId } from "./ruta";
 import { anadirFila, leerTabla, aObjeto } from "./sheets";
 import { n8n, avisarTelegram, escHtml, ErrorN8n } from "./n8n";
 import { COLS, CATEGORIAS, AMBITOS, claveProveedor } from "./finanzas";
-import { num, eur, isoAEs, fechaISO } from "./parse";
+import { num, importe, eur, isoAEs, fechaISO } from "./parse";
 
 export interface Entrada {
   fecha?: string;
@@ -39,9 +39,9 @@ export function aColumnas(e: Entrada, parcial = false): Record<string, string> {
     if (e[k] !== undefined) o[col] = f(e[k] as never);
   };
   if (!parcial || e.total !== undefined) {
-    const total = num(e.total);
+    const total = importe(e.total);
     if (!(total > 0)) throw new ErrorN8n("El total tiene que ser un número mayor que 0", 400);
-    let base = num(e.base), iva = num(e.iva);
+    let base = importe(e.base), iva = importe(e.iva);
     if (!base && !iva) { base = total / 1.21; iva = total - base; }
     else if (base && !iva) iva = total - base;
     else if (!base && iva) base = total - iva;

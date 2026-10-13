@@ -2,7 +2,7 @@
 import { useRef, useState } from "react";
 import { Boton, Campo, inputCls, llamar, avisar } from "../ui";
 import { CATEGORIAS, AMBITOS, clasificar, ambitoPorDefecto, type Movimiento, type Categoria } from "@/lib/finanzas";
-import { hoyISO, eur, num } from "@/lib/parse";
+import { hoyISO, eur, num, importe } from "@/lib/parse";
 
 export interface Ficha {
   tipo: string;
@@ -163,7 +163,7 @@ export default function FormGasto({
   };
 
   const cuadra = (() => {
-    const t = num(f.total), b = num(f.base), i = num(f.iva);
+    const t = importe(f.total), b = importe(f.base), i = importe(f.iva);
     if (!t || !b) return null;
     return Math.abs(b + i - t) <= Math.max(0.05, t * 0.02);
   })();
@@ -237,7 +237,7 @@ export default function FormGasto({
         <Campo etiqueta="Nº documento">
           <input className={inputCls} value={f.doc} onChange={(e) => set("doc", e.target.value)} />
         </Campo>
-        {cuadra === false && <p className="col-span-2 sm:col-span-4 -mt-1 text-xs text-alerta-txt">⛔ Base + IVA = {eur(num(f.base) + num(f.iva))}, no cuadra con el total {eur(num(f.total))}.</p>}
+        {cuadra === false && <p className="col-span-2 sm:col-span-4 -mt-1 text-xs text-alerta-txt">⛔ Base + IVA = {eur(importe(f.base) + importe(f.iva))}, no cuadra con el total {eur(importe(f.total))}.</p>}
         <Campo etiqueta="Categoría" className="col-span-2">
           <select className={inputCls} value={f.categoria} onChange={(e) => (setCatTocada(true), set("categoria", e.target.value))}>
             {CATEGORIAS.map((c) => <option key={c}>{c}</option>)}

@@ -8,7 +8,7 @@ import { leerFactura } from "./extraer";
 import { aColumnas, duplicadoDe, guardarGasto } from "./gastosSrv";
 import { ambitoPorDefecto, CATEGORIAS, type Categoria } from "./finanzas";
 import { ErrorN8n, escHtml } from "./n8n";
-import { num, eur, isoAEs, hoyISO, fechaISO } from "./parse";
+import { importe, eur, isoAEs, hoyISO, fechaISO } from "./parse";
 import { leerIngresos, modificarIngreso, crearIngreso, registrarCobro } from "./ingresosSrv";
 import { esFacturaTaller, casarFactura, revisarFactura, tarjetaTaller, limpiaPedido, historialDe, seguimientoFactura, type DatosTaller, type LineaFactura } from "./facturaTaller";
 
@@ -91,7 +91,7 @@ export async function modificarBorrador(id: string, cambios: Partial<FichaBorrad
   const limpio: Partial<FichaBorrador> = {};
   for (const [k, v] of Object.entries(cambios)) if (v !== undefined && v !== "") (limpio as Record<string, unknown>)[k] = v;
   if (limpio.fecha) limpio.fecha = fechaISO(limpio.fecha) || b.ficha.fecha;
-  for (const k of ["total", "base", "iva"] as const) if (limpio[k] !== undefined) limpio[k] = num(limpio[k]);
+  for (const k of ["total", "base", "iva"] as const) if (limpio[k] !== undefined) limpio[k] = importe(limpio[k]);
   if (limpio.total !== undefined && limpio.base === undefined) {
     limpio.base = Math.round((limpio.total / 1.21) * 100) / 100;
     limpio.iva = Math.round((limpio.total - limpio.base) * 100) / 100;
@@ -243,9 +243,8 @@ async function modificarTaller(b: Borrador, c: Partial<FichaBorrador> & CambiosT
   const ped = limpiaPedido(c.pedido);
   const imp0 = c.importe ?? c.total;
   if (ped && imp0 !== undefined && imp0 !== "") {
-    // «1.480» son mil cuatrocientos ochenta (num() lo leería como 1,48)
-    const t = String(imp0).trim();
-    const imp = /^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t) ? num(t.replace(/\./g, "")) : num(imp0);
+    // «1.480» son mil cuatrocientos ochenta (importe() lo lee bien; num() lo leería como 1,48)
+    const imp = importe(imp0);
     if (!(imp > 0)) throw new ErrorN8n("El importe tiene que ser mayor que 0 (base sin IVA del trabajo)", 400);
     const suyas = lineas.filter((l) => limpiaPedido(l.pedido) === ped);
     const resto = lineas.filter((l) => limpiaPedido(l.pedido) !== ped);

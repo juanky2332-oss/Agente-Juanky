@@ -7,7 +7,7 @@ import { leerRangos, aTabla, aObjeto, modificarFila, borrarFila } from "./sheets
 import { aMovimiento, CATEGORIAS, AMBITOS, COLS, type Movimiento } from "./finanzas";
 import { aColumnas, type Entrada } from "./gastosSrv";
 import { escHtml, ErrorN8n } from "./n8n";
-import { eur, isoAEs, normaliza, hoyISO, fechaISO } from "./parse";
+import { eur, isoAEs, normaliza, hoyISO, fechaISO, importe } from "./parse";
 import { aMes, nombreMes, mesesDelRango } from "./ingresos";
 import { driveIdDe, extDe, enviarArchivos, type Archivo } from "./documentos";
 
@@ -175,7 +175,7 @@ export async function modificarGasto(ref: string, datos: Entrada & Record<string
   if (clave && clave !== miClave) throw new ErrorN8n("Ese gasto ha cambiado desde que te lo enseñé: vuelve a pedírmelo.", 409);
   // Si cambia el total y no se dan base/IVA, se recalculan al 21 % (como en la app).
   if (d.total !== undefined && d.base === undefined) {
-    const t = Number(String(d.total).replace(",", "."));
+    const t = importe(d.total);
     d.base = Math.round((t / 1.21) * 100) / 100;
     d.iva = Math.round((t - (d.base as number)) * 100) / 100;
   }

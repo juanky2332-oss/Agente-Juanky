@@ -4,7 +4,7 @@ import { useApi, Tarjeta, Kpi, Boton, Cargando, FalloCarga, Titulo, Chip, Vacio,
 import { BarraPartes, BarrasMes, Donut, useColores, colorSerie } from "@/components/graficas";
 import Programados, { type ProgramadoApi } from "@/components/gastos/Programados";
 import { NEGOCIOS, PAGADOR, TIPOS_INGRESO, METODOS, cobrosPorMes, porFuente, proyectosFlownexion, type Ingreso, type ResumenNegocio, type Cobro, type Destino } from "@/lib/ingresos";
-import { eur, eur0, isoAEs, hoyISO, num, normaliza, mesClave } from "@/lib/parse";
+import { eur, eur0, isoAEs, hoyISO, num, importe, aTexto, normaliza, mesClave } from "@/lib/parse";
 import { mesesEntre } from "@/lib/finanzas";
 import { PagarVarios, CambiarReparto } from "@/components/ingresos/Bloque";
 import Proyectos from "@/components/ingresos/Proyectos";
@@ -68,8 +68,8 @@ const formVacio = (negocio: string): FormI => ({
 });
 const aForm = (i: Ingreso): FormI => ({
   negocio: i.negocio, cliente: i.cliente, concepto: i.concepto, referencia: i.referencia, fecha: i.fecha || "", tipo: i.tipo, unidades: i.unidades,
-  precioUnit: i.precioUnit === null ? "" : String(i.precioUnit), totalTrabajo: i.totalTrabajo === null ? "" : String(i.totalTrabajo), porcentaje: i.porcentaje === null ? "" : String(i.porcentaje),
-  importe: i.importe === null ? "" : String(i.importe), vencimiento: i.vencimiento || "", notas: i.notas, estado: i.estadoHoja, cobroInicial: "", fechaCobro: hoyISO(),
+  precioUnit: i.precioUnit === null ? "" : aTexto(i.precioUnit), totalTrabajo: i.totalTrabajo === null ? "" : aTexto(i.totalTrabajo), porcentaje: i.porcentaje === null ? "" : String(i.porcentaje),
+  importe: i.importe === null ? "" : aTexto(i.importe), vencimiento: i.vencimiento || "", notas: i.notas, estado: i.estadoHoja, cobroInicial: "", fechaCobro: hoyISO(),
 });
 
 export default function Ingresos() {
@@ -411,7 +411,7 @@ export default function Ingresos() {
               <Campo etiqueta="Cómo"><select className={inputCls} value={cobrar.metodo} onChange={(e) => setCobrar({ ...cobrar, metodo: e.target.value })}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></Campo>
             </div>
             <Campo etiqueta="Nota (opcional)"><input className={inputCls} value={cobrar.notas} onChange={(e) => setCobrar({ ...cobrar, notas: e.target.value })} /></Campo>
-            {cobrar.destino === "yo" && cobrar.importe && num(cobrar.importe) < cobrar.i.pendiente - 0.005 && <p className="text-xs text-txt-2">Quedarán <b className="tabular">{eur(cobrar.i.pendiente - num(cobrar.importe))}</b> pendientes.</p>}
+            {cobrar.destino === "yo" && cobrar.importe && importe(cobrar.importe) < cobrar.i.pendiente - 0.005 && <p className="text-xs text-txt-2">Quedarán <b className="tabular">{eur(cobrar.i.pendiente - importe(cobrar.importe))}</b> pendientes.</p>}
             <div className="flex justify-end gap-2">
               <Boton onClick={() => setCobrar(null)}>Cancelar</Boton>
               <Boton tipo="primario" disabled={enviando} onClick={confirmarCobro}>{enviando ? "Apuntando…" : "Confirmar cobro"}</Boton>
@@ -438,7 +438,7 @@ export default function Ingresos() {
 
 function FormIngreso({ f, set, nuevo = false }: { f: FormI; set: (f: FormI) => void; nuevo?: boolean }) {
   const u = (k: keyof FormI, v: string) => set({ ...f, [k]: v });
-  const total = f.totalTrabajo ? num(f.totalTrabajo) : f.unidades && f.precioUnit ? num(f.unidades) * num(f.precioUnit) : 0;
+  const total = f.totalTrabajo ? importe(f.totalTrabajo) : f.unidades && f.precioUnit ? num(f.unidades) * importe(f.precioUnit) : 0;
   const calc = !f.importe && total ? (f.porcentaje ? (total * num(f.porcentaje)) / 100 : total) : null;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -570,11 +570,11 @@ function PagoFila({ k, n, flownexion, guardar, borrar }: { k: Cobro; n: number; 
         </div>
         <div className="flex justify-end gap-2">
           <Boton pequeno onClick={() => setEd(null)}>Cancelar</Boton>
-          <Boton pequeno tipo="primario" disabled={g || !(num(ed.importe) > 0)} onClick={async () => {
+          <Boton pequeno tipo="primario" disabled={g || !(importe(ed.importe) > 0)} onClick={async () => {
             setG(true);
             try {
               const c: Record<string, unknown> = {};
-              if (num(ed.importe) !== k.importe) c.importe = ed.importe;
+              if (importe(ed.importe) !== k.importe) c.importe = ed.importe;
               if (ed.destino !== k.destino) c.destino = ed.destino;
               if (ed.fecha !== (k.fecha || "")) c.fecha = ed.fecha;
               if (ed.metodo !== k.metodo) c.metodo = ed.metodo;
@@ -596,7 +596,7 @@ function PagoFila({ k, n, flownexion, guardar, borrar }: { k: Cobro; n: number; 
       </span>
       <span className="flex items-center gap-2">
         <span className={`tabular font-semibold ${k.destino === "flownexion" ? "text-txt-2" : "text-bien-txt"}`}>{eur(k.importe)}</span>
-        <button className="text-xs text-acento hover:underline" onClick={() => setEd({ importe: String(k.importe), destino: k.destino, fecha: k.fecha || "", metodo: k.metodo, notas: k.notas })}>Editar</button>
+        <button className="text-xs text-acento hover:underline" onClick={() => setEd({ importe: aTexto(k.importe), destino: k.destino, fecha: k.fecha || "", metodo: k.metodo, notas: k.notas })}>Editar</button>
         <button className="text-xs text-txt-3 hover:text-alerta-txt" onClick={borrar} aria-label="Quitar pago">🗑</button>
       </span>
     </li>

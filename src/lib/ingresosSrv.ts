@@ -7,7 +7,7 @@ import {
   aCobro, aDestino, montarIngresos, NEGOCIOS, normId, nombreIngreso, conceptoConPorcentaje, escalarPagosCliente,
   type Ingreso, type Destino,
 } from "./ingresos";
-import { num, tieneNumero, fechaISO, isoAEs, hoyISO, eur } from "./parse";
+import { num, importe as leerImporte, tieneNumero, fechaISO, isoAEs, hoyISO, eur } from "./parse";
 import { sincronizarTaller } from "./tallerSync";
 
 export interface EntradaIngreso {
@@ -51,10 +51,12 @@ function aColumnas(e: EntradaIngreso, parcial = false): Record<string, string> {
   if (!vacio(e.fecha)) o.FECHA = fechaHoja(e.fecha);
   if (!vacio(e.vencimiento)) o.VENCIMIENTO = fechaHoja(e.vencimiento);
   const n = (v: unknown) => (tieneNumero(v) ? num(v) : null);
-  const uds = n(e.unidades), pu = n(e.precioUnit);
-  let total = n(e.totalTrabajo);
+  // Lo que son euros (escritos por ti o por el bot) se leen con «1.500» = mil quinientos.
+  const eu = (v: unknown) => (tieneNumero(v) ? leerImporte(v) : null);
+  const uds = n(e.unidades), pu = eu(e.precioUnit);
+  let total = eu(e.totalTrabajo);
   const pct = n(e.porcentaje);
-  let imp = n(e.importe);
+  let imp = eu(e.importe);
   if (total === null && uds !== null && pu !== null) total = uds * pu;
   if (imp === null && total !== null) imp = pct !== null ? (total * pct) / 100 : total;
   if (!vacio(e.precioUnit)) o.PRECIO_UNIT = pu === null ? "" : dec(pu);
@@ -88,9 +90,9 @@ export async function crearIngreso(e: EntradaIngreso & { cobroInicial?: number |
   if (!cols.FECHA) cols.FECHA = isoAEs(hoyISO());
   await anadirFila("Ingresos", { ...cols, ID: id, ORIGEN: avisar ? "app" : "telegram" }, t.cabecera);
   let cobro: string | null = null;
-  if (tieneNumero(e.cobroInicial) && num(e.cobroInicial) > 0) cobro = (await registrarCobro({ ingreso: id, importe: e.cobroInicial!, fecha: e.fechaCobro, destino: e.destinoCobro }, false)).id;
+  if (tieneNumero(e.cobroInicial) && leerImporte(e.cobroInicial) > 0) cobro = (await registrarCobro({ ingreso: id, importe: e.cobroInicial!, fecha: e.fechaCobro, destino: e.destinoCobro }, false)).id;
   if (avisar)
-    await avisarTelegram(`💰 <b>Nuevo ingreso desde la app</b>\n${linea({ id, negocio: cols.NEGOCIO as Ingreso["negocio"], cliente: cols.CLIENTE || "", concepto: cols.CONCEPTO, referencia: cols.REFERENCIA || "" })}\nImporte: <b>${cols.IMPORTE ? eur(num(cols.IMPORTE)) : "sin precio"}</b>${cobro ? `\nYa cobrado: ${eur(num(e.cobroInicial))}` : ""}`);
+    await avisarTelegram(`💰 <b>Nuevo ingreso desde la app</b>\n${linea({ id, negocio: cols.NEGOCIO as Ingreso["negocio"], cliente: cols.CLIENTE || "", concepto: cols.CONCEPTO, referencia: cols.REFERENCIA || "" })}\nImporte: <b>${cols.IMPORTE ? eur(num(cols.IMPORTE)) : "sin precio"}</b>${cobro ? `\nYa cobrado: ${eur(leerImporte(e.cobroInicial))}` : ""}`);
   return { id, cobro };
 }
 
@@ -104,9 +106,10 @@ export async function modificarIngreso(id: string, e: EntradaIngreso, avisar = t
     actual = (await leerIngresos()).find((x) => x.id === id);
     if (!actual) throw new ErrorN8n(`#${id} ya no existe`, 404);
     const n = (v: unknown) => (tieneNumero(v) ? num(v) : null);
+    const eu = (v: unknown) => (tieneNumero(v) ? leerImporte(v) : null);
     const uds = e.unidades !== undefined ? n(e.unidades) : n(actual.unidades);
-    const pu = e.precioUnit !== undefined ? n(e.precioUnit) : actual.precioUnit;
-    const total = e.totalTrabajo !== undefined ? n(e.totalTrabajo) : tocaPrecio && uds !== null && pu !== null ? uds * pu : actual.totalTrabajo;
+    const pu = e.precioUnit !== undefined ? eu(e.precioUnit) : actual.precioUnit;
+    const total = e.totalTrabajo !== undefined ? eu(e.totalTrabajo) : tocaPrecio && uds !== null && pu !== null ? uds * pu : actual.totalTrabajo;
     const pct = e.porcentaje !== undefined ? n(e.porcentaje) : actual.porcentaje;
     if (total !== null && pct !== null) {
       e = { ...e, totalTrabajo: r2(total), importe: r2((total * pct) / 100) };
@@ -155,7 +158,7 @@ export async function registrarCobro(b: { ingreso: string; importe?: number | st
   // Hueco que queda: a ti, lo pendiente; del cliente a Flownexion, lo que el cliente aún no ha pagado.
   const hueco = destino === "yo" ? i.pendiente : Math.round(((i.importe || 0) - i.clientePago) * 100) / 100;
   if (hueco <= 0.005) throw new ErrorN8n(destino === "yo" ? `#${i.id} ya te lo han pagado entero` : `El cliente ya pagó a Flownexion todo #${i.id}`, 400);
-  const importe = tieneNumero(b.importe) ? num(b.importe) : hueco;
+  const importe = tieneNumero(b.importe) ? leerImporte(b.importe) : hueco;
   if (!(importe > 0)) throw new ErrorN8n("El importe del cobro tiene que ser mayor que 0", 400);
   if (importe > hueco + 0.005) throw new ErrorN8n(`Solo quedan ${eur(hueco)} ${destino === "yo" ? "por cobrar" : "que el cliente no haya pagado"} de #${i.id}; has puesto ${eur(importe)}`, 400);
   const t = await leerTabla("Cobros");
@@ -178,8 +181,8 @@ export async function registrarCobro(b: { ingreso: string; importe?: number | st
 export async function modificarCobro(id: string, b: { importe?: number | string; fecha?: string; metodo?: string; notas?: string; destino?: string }, avisar = true) {
   const c: Record<string, string> = {};
   if (b.importe !== undefined) {
-    if (!(num(b.importe) > 0)) throw new ErrorN8n("Importe no válido", 400);
-    c.IMPORTE = dec(num(b.importe));
+    if (!(leerImporte(b.importe) > 0)) throw new ErrorN8n("Importe no válido", 400);
+    c.IMPORTE = dec(leerImporte(b.importe));
   }
   if (b.fecha !== undefined) c.FECHA = b.fecha ? fechaHoja(b.fecha) : "";
   if (b.metodo !== undefined) c.METODO = b.metodo;

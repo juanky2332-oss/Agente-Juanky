@@ -4,7 +4,7 @@ import { Boton, Campo, inputCls, llamar, avisar, Modal, Vacio } from "../ui";
 import { CATEGORIAS, AMBITOS } from "@/lib/finanzas";
 import { PERIODICIDADES } from "@/lib/programados";
 import { NEGOCIOS } from "@/lib/ingresos";
-import { eur, isoAEs, hoyISO } from "@/lib/parse";
+import { eur, isoAEs, hoyISO, aTexto } from "@/lib/parse";
 
 export interface ProgramadoApi {
   id: string; activo: boolean; tipo: "gasto" | "ingreso"; nombre: string; proveedor: string; concepto: string; categoria: string; ambito: string; negocio: string;
@@ -82,7 +82,7 @@ export default function Programados({ lista, tipo = "gasto", alCambiar }: { list
               </div>
               <div className="flex shrink-0 gap-1.5">
                 <Boton pequeno tipo="fantasma" onClick={() => alternar(p)}>{p.activo ? "Pausar" : "Activar"}</Boton>
-                <Boton pequeno onClick={() => setEdit({ id: p.id, f: { ...p, importe: String(p.importe), dia: String(p.dia), desde: p.desde || "", hasta: p.hasta || "" } })}>Editar</Boton>
+                <Boton pequeno onClick={() => setEdit({ id: p.id, f: { ...p, importe: aTexto(p.importe), dia: String(p.dia), desde: p.desde || "", hasta: p.hasta || "" } })}>Editar</Boton>
                 <Boton pequeno tipo="peligro" onClick={() => borrar(p)}>🗑</Boton>
               </div>
             </li>

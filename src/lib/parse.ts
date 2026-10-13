@@ -23,6 +23,26 @@ export function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Importe escrito por una persona (app o bot): «1.500» son mil quinientos, no 1,5.
+ * Si encaja con miles españoles con punto («1.500», «1.500,50», «2.475,00€», «1.000.000»)
+ * se leen así; si no, igual que num() («82.07», «0.135», «12.5», «150,5», «1,234.56»).
+ * Mismo contrato que num(): vacío o basura → 0. Ojo: «1.234» siempre es 1234 aquí;
+ * para leer la hoja (que trae «0.135» o «82.07» con punto decimal) se sigue usando num().
+ */
+export function importe(v: unknown): number {
+  if (typeof v === "number") return num(v);
+  const t = String(v ?? "").replace(/[\s €]/g, "").replace(/eur(os?)?$/i, "").replace(/^\+/, "");
+  const m = t.match(/^(-?)([1-9]\d{0,2}(?:\.\d{3})+)(,\d+)?$/);
+  if (m) return num(m[1] + m[2].replace(/\./g, "") + (m[3] || ""));
+  return num(t);
+}
+
+/** Número → texto para un campo que luego se lee con importe(): coma decimal («1,125»), nunca «1.125». */
+export function aTexto(n: number): string {
+  return String(n).replace(".", ",");
+}
+
 export function tieneNumero(v: unknown): boolean {
   return /\d/.test(String(v ?? ""));
 }

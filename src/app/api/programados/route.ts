@@ -3,7 +3,7 @@ import { leerTabla, anadirFila, modificarPorId, borrarPorIds, siguienteId } from
 import { ErrorN8n, avisarTelegram, escHtml } from "@/lib/n8n";
 import { generarProgramados } from "@/lib/datos";
 import { PERIODICIDADES } from "@/lib/programados";
-import { num, fechaISO, isoAEs } from "@/lib/parse";
+import { num, importe, fechaISO, isoAEs } from "@/lib/parse";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,8 +26,8 @@ function aColumnas(e: Entrada, parcial = false) {
   for (const [k, c] of [["nombre", "NOMBRE"], ["proveedor", "PROVEEDOR"], ["concepto", "CONCEPTO"], ["categoria", "CATEGORIA"], ["ambito", "AMBITO"], ["negocio", "NEGOCIO"], ["notas", "NOTAS"]] as const)
     if (e[k] !== undefined) o[c] = String(e[k] ?? "").trim();
   if (e.importe !== undefined) {
-    if (!(num(e.importe) > 0)) throw new ErrorN8n("El importe tiene que ser mayor que 0", 400);
-    o.IMPORTE = String(num(e.importe));
+    if (!(importe(e.importe) > 0)) throw new ErrorN8n("El importe tiene que ser mayor que 0", 400);
+    o.IMPORTE = String(Math.round(importe(e.importe) * 100) / 100);
   }
   if (e.moneda !== undefined) o.MONEDA = (e.moneda || "EUR").toUpperCase();
   if (e.periodicidad !== undefined) {
