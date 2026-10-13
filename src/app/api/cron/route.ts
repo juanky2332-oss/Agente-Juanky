@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { manejar } from "@/lib/ruta";
 import { generarProgramados } from "@/lib/datos";
 
@@ -6,4 +7,9 @@ import { generarProgramados } from "@/lib/datos";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export const GET = manejar(async () => ({ ok: true, ...(await generarProgramados()) }));
+export const GET = manejar(async () => {
+  const r = await generarProgramados();
+  // Si algo falló (lectura, escritura o aviso) NO se responde 200: así Vercel y el centinela lo ven.
+  if (r.errores.length) return NextResponse.json({ ok: false, ...r }, { status: 500 });
+  return { ok: true, ...r };
+});

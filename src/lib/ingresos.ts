@@ -8,6 +8,7 @@
 // cliente ha pagado a Flownexion; su IMPORTE es TU PARTE de ese pago). Solo "yo" cuenta como
 // cobrado. Lo que el cliente ya pagó y a ti no te ha llegado es lo que Flownexion te debe.
 import { num, fechaISO, tieneNumero, hoyISO, normaliza } from "./parse";
+import { separarCopiasP } from "./programados";
 
 export const NEGOCIOS = ["Taller", "Flownexion", "Otro"] as const;
 export type Negocio = (typeof NEGOCIOS)[number];
@@ -149,8 +150,8 @@ export function aCobro(fila: number, o: Record<string, string>): Cobro {
 export function montarIngresos(filas: { fila: number; o: Record<string, string> }[], cobros: Cobro[], hoy = hoyISO()): Ingreso[] {
   const porIngreso = new Map<string, Cobro[]>();
   for (const c of cobros) porIngreso.set(c.ingreso, [...(porIngreso.get(c.ingreso) || []), c]);
-  return filas
-    .filter(({ o }) => (o.ID || "").trim())
+  // Un ID de apunte automático (P-…) repetido es una copia: se ignora (no se borra de la hoja).
+  return separarCopiasP(filas.filter(({ o }) => (o.ID || "").trim()), ({ o }) => o.ID).unicos
     .map(({ fila, o }) => {
       const id = o.ID.trim();
       const cs = (porIngreso.get(id) || []).sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""));

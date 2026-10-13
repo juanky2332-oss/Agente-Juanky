@@ -9,12 +9,14 @@ import { aColumnas, type Entrada } from "./gastosSrv";
 import { escHtml, ErrorN8n } from "./n8n";
 import { eur, isoAEs, normaliza, hoyISO, fechaISO, importe } from "./parse";
 import { aMes, nombreMes, mesesDelRango } from "./ingresos";
+import { separarCopiasP } from "./programados";
 import { driveIdDe, extDe, enviarArchivos, type Archivo } from "./documentos";
 
 export async function leerGastos(): Promise<Movimiento[]> {
   const [v] = await leerRangos(["'GestorIA'!A1:Z3000"]);
   const t = aTabla("GestorIA", v);
-  return t.filas.map((f) => aMovimiento(f.fila, aObjeto(t, f.celdas))).filter((m) => m.proveedor || m.total);
+  // Un ID P-… repetido es una copia de un apunte automático: se ignora (no se borra de la hoja).
+  return separarCopiasP(t.filas.map((f) => aMovimiento(f.fila, aObjeto(t, f.celdas))), (m) => m.id).unicos.filter((m) => m.proveedor || m.total);
 }
 
 export interface Filtro { busqueda?: string; categoria?: string; proveedor?: string; ambito?: string; desde?: string; hasta?: string; tipo?: string }

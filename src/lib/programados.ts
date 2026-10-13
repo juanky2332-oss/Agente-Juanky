@@ -96,6 +96,51 @@ export function pendientesDeGenerar(ps: Programado[], existentes: Set<string>, h
   return out;
 }
 
+/** ¿Es el ID de un apunte automático (P-<plantilla>-<AAAA-MM>)? */
+export const esIdProgramado = (id: string) => /^P-/.test(String(id || "").trim());
+
+/**
+ * Separa las copias de los apuntes automáticos: si un ID P-… sale dos veces, se queda la primera
+ * y la segunda va a `copias` (NO se borra nada de la hoja, solo se ignora al montar). Las filas
+ * con otro ID (o sin ID) pasan siempre tal cual.
+ */
+export function separarCopiasP<T>(items: T[], idDe: (x: T) => string): { unicos: T[]; copias: T[] } {
+  const vistos = new Set<string>();
+  const unicos: T[] = [], copias: T[] = [];
+  for (const x of items) {
+    const id = String(idDe(x) || "").trim();
+    if (esIdProgramado(id)) {
+      if (vistos.has(id)) {
+        copias.push(x);
+        continue;
+      }
+      vistos.add(id);
+    }
+    unicos.push(x);
+  }
+  return { unicos, copias };
+}
+
+/** IDs P-… que aparecen más de una vez (para listarlos en el parte o en la salud de la app). */
+export function idsDuplicadosP(ids: string[]): string[] {
+  const n = new Map<string, number>();
+  for (const raw of ids) {
+    const id = String(raw || "").trim();
+    if (esIdProgramado(id)) n.set(id, (n.get(id) || 0) + 1);
+  }
+  return [...n].filter(([, k]) => k > 1).map(([id]) => id);
+}
+
+/** Quita de lo pendiente lo que ya existe (lectura fresca justo antes de escribir). Sin repetir IDs dentro del lote. */
+export function sinLosExistentes<T extends { id: string }>(pendientes: T[], existentes: Set<string>): T[] {
+  const dentro = new Set<string>();
+  return pendientes.filter((x) => {
+    if (existentes.has(x.id) || dentro.has(x.id)) return false;
+    dentro.add(x.id);
+    return true;
+  });
+}
+
 /** Fila de GestorIA para un gasto programado. */
 export function filaGasto(g: { p: Programado; fecha: string; id: string; importeEur: number }) {
   const p = g.p;

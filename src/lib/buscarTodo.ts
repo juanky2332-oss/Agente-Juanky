@@ -3,6 +3,7 @@ import "server-only";
 // ingresos, vinos y restaurantes). Resultado agrupado, con el código para pedir más de cada uno.
 import { leerRangos, aTabla, aObjeto } from "./sheets";
 import { aMovimiento } from "./finanzas";
+import { separarCopiasP } from "./programados";
 import { leerIngresos } from "./ingresosSrv";
 import { nombreIngreso } from "./ingresos";
 import { escHtml } from "./n8n";
@@ -25,7 +26,7 @@ export async function buscarTodo(q: string) {
   if (cs.length) bloques.push([`👤 Contactos (${cs.length})`, cs.slice(0, 6).map((x) => `<code>#C${x.fila}</code> <b>${escHtml(x.o.Contacto || x.o.Empresa || "?")}</b>${x.o.Empresa && x.o.Contacto ? " · " + escHtml(x.o.Empresa) : ""}${x.o["Teléfono"] || x.o.Telefono ? " · " + escHtml(x.o["Teléfono"] || x.o.Telefono) : ""}${x.o.Email || x.o.email ? " · " + escHtml(x.o.Email || x.o.email) : ""}`)]);
 
   const tg = aTabla("GestorIA", gestoria);
-  const gs = tg.filas.map((f) => aMovimiento(f.fila, aObjeto(tg, f.celdas))).filter((m) => casa(`${m.proveedor} ${m.concepto} ${m.doc} ${m.categoria} ${m.notas} ${m.subcategoria}`, ws)).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const gs = separarCopiasP(tg.filas.map((f) => aMovimiento(f.fila, aObjeto(tg, f.celdas))), (m) => m.id).unicos.filter((m) => casa(`${m.proveedor} ${m.concepto} ${m.doc} ${m.categoria} ${m.notas} ${m.subcategoria}`, ws)).sort((a, b) => b.fecha.localeCompare(a.fecha));
   if (gs.length) bloques.push([`🧾 Gastos (${gs.length} · ${eur(gs.reduce((s, m) => s + m.total, 0))})`, gs.slice(0, 6).map((m) => `<code>#G${m.fila}</code> ${m.sinFecha ? "sin fecha" : isoAEs(m.fecha)} · ${escHtml(m.proveedor)} · <b>${eur(m.total)}</b>${m.enlace ? ` · <a href="${escHtml(m.enlace)}">📎</a>` : ""}`)]);
 
   const is = (await leerIngresos()).filter((i) => i.estado !== "anulado" && casa(`${i.id} ${i.negocio} ${i.cliente} ${i.concepto} ${i.referencia} ${i.notas}`, ws));

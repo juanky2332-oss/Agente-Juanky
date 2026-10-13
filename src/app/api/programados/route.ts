@@ -55,7 +55,7 @@ export const POST = manejar(async (req: Request) => {
   const cols = aColumnas({ activo: true, tipo: "gasto", periodicidad: "mensual", modo: "auto", moneda: "EUR", ...e });
   await anadirFila("Programados", { ...cols, ID: id }, t.cabecera);
   await avisarTelegram(`🔁 <b>Nuevo ${cols.TIPO} programado desde la app</b>\n${escHtml(cols.NOMBRE)} · ${cols.IMPORTE} ${cols.MONEDA} ${cols.PERIODICIDAD}${cols.MODO === "correo" ? " (llega por correo)" : " (se apunta solo)"}`);
-  const gen = cols.ACTIVO === "sí" ? await generarProgramados() : { gastos: 0, ingresos: 0 };
+  const gen = cols.ACTIVO === "sí" ? await generarProgramados() : { gastos: 0, ingresos: 0, errores: [] as string[], duplicados: [] as string[] };
   return { ok: true, id, generados: gen };
 });
 
