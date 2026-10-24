@@ -1,6 +1,6 @@
 // Propuesta comercial de «TransformaConIA Gestión» en PDF (2 páginas). Sin red: solo datos -> bytes.
 // Tarifa vigente (web transformaconia.com/erp-industria/ y landing, 2026-10): puesta en marcha 690 €
-// (tarifa general 990 €) en dos pagos de 345 €, mantenimiento 69 €/mes con los 3 primeros meses
+// (tarifa general 990 €) en un solo pago al empezar (desde 2026-10-25; antes 345 + 345), mantenimiento 69 €/mes con los 3 primeros meses
 // gratis, usuario extra 15 €/mes desde el primer mes, sin permanencia (30 días de aviso). Importes sin IVA y orientativos.
 // REGLA: en lo comercial NUNCA aparece «Flownexion».
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
@@ -9,8 +9,6 @@ import { LOGO_PNG_B64, LOGO_ANCHO, LOGO_ALTO } from "./propuestaLogo";
 export const TARIFA = {
   puestaEnMarcha: 690,
   puestaEnMarchaGeneral: 990,
-  pagoInicial: 345,
-  pagoMes3: 345,
   mantenimientoMes: 69,
   mesesGratis: 3,
   usuarioExtraMes: 15,
@@ -225,12 +223,12 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
 
   y = H - 118;
   p2.drawText("Condiciones económicas", { x: M, y, size: 22, font: f.b, color: C.ink });
-  p2.drawText("Importes orientativos, sin IVA. Tras la demo recibes el presupuesto cerrado.", { x: M, y: y - 20, size: 10, font: f.r, color: C.muted });
+  p2.drawText("Importes orientativos, sin IVA. Tras el diagnóstico recibes el presupuesto cerrado.", { x: M, y: y - 20, size: 10, font: f.r, color: C.muted });
   y -= 48;
 
   const n = d.usuariosExtra;
   const filas: { t: string; det: string; imp: string; sub?: string }[] = [
-    { t: "Puesta en marcha", det: "Demo, configuración a tu manera y arranque con tu equipo. En dos pagos de " + eur(TARIFA.pagoInicial) + ".", imp: eur(TARIFA.puestaEnMarcha), sub: `Oferta de lanzamiento (tarifa general ${eur(TARIFA.puestaEnMarchaGeneral)})` },
+    { t: "Puesta en marcha", det: "Configuración a tu manera y arranque con tu equipo. Un solo pago al empezar.", imp: eur(TARIFA.puestaEnMarcha), sub: `Oferta de lanzamiento (tarifa general ${eur(TARIFA.puestaEnMarchaGeneral)})` },
     { t: "Mantenimiento", det: `Soporte, copias de seguridad y mejoras. Los ${TARIFA.mesesGratis} primeros meses, gratis.`, imp: `${eur(TARIFA.mantenimientoMes)}/mes` },
     n > 0
       ? { t: `Usuarios extra (${n})`, det: `${n} ${n === 1 ? "usuario adicional" : "usuarios adicionales"} con sus propios permisos, a ${eur(TARIFA.usuarioExtraMes)} por usuario y mes desde el primer mes (no entran en los meses gratis).`, imp: `${eur(n * TARIFA.usuarioExtraMes)}/mes` }
@@ -252,8 +250,8 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
   p2.drawRectangle({ x: M, y: y - 92, width: W - 2 * M, height: 92, color: C.purpleSoft, borderColor: C.purple, borderWidth: 0.8 });
   p2.drawText("RESUMEN DE PAGOS", { x: M + 14, y: y - 20, size: 8.5, font: f.b, color: C.purpleDark });
   const celdas: [string, string, string][] = [
-    ["Al empezar", eur(TARIFA.pagoInicial), n > 0 ? `1.er pago + usuarios ${eur(n * TARIFA.usuarioExtraMes)}/mes` : "primer pago de la puesta en marcha"],
-    [`A los ${TARIFA.mesesGratis} meses`, eur(TARIFA.pagoMes3), "segundo pago, si te convence"],
+    ["Al empezar", eur(TARIFA.puestaEnMarcha), "puesta en marcha, pago único"],
+    [`Meses 1 a ${TARIFA.mesesGratis}`, n > 0 ? `${eur(n * TARIFA.usuarioExtraMes)}/mes` : eur(0), n > 0 ? "solo los usuarios extra" : "mantenimiento gratis"],
     [`Desde el mes ${TARIFA.mesesGratis + 1}`, `${eur(cuota)}/mes`, n > 0 ? `${eur(TARIFA.mantenimientoMes)} + ${n} x ${eur(TARIFA.usuarioExtraMes)}` : "mantenimiento"],
   ];
   const cw = (W - 2 * M - 28) / 3;
