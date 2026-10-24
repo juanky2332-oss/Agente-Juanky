@@ -2,7 +2,7 @@
 // (segunda puerta: si el proxy falla o cambia el matcher, la ruta sigue protegida).
 //   - Panel: cookie jk_sesion firmada con HMAC (AUTH_SECRET).
 //   - /api/bot/*: cabecera x-app-key = N8N_APP_KEY (el bot de Telegram en n8n).
-//   - /api/cron: Authorization: Bearer <CRON_SECRET> (cron diario de Vercel).
+//   - /api/cron y /api/cron/*: Authorization: Bearer <CRON_SECRET> (crons de Vercel).
 // Sin dependencias de servidor (Web Crypto): vale en el proxy y en las rutas.
 import { COOKIE, valida } from "./auth";
 
@@ -25,8 +25,8 @@ export interface Credenciales {
 export async function accesoPermitido(c: Credenciales, env: Record<string, string | undefined> = process.env): Promise<boolean> {
   // El bot de Telegram (n8n) entra con la misma clave compartida del workflow de la API.
   if (c.ruta.startsWith("/api/bot/") && igual(c.appKey || "", env.N8N_APP_KEY || "")) return true;
-  // Cron diario de Vercel (manda "Authorization: Bearer <CRON_SECRET>").
-  if (c.ruta === "/api/cron" && igual(c.authorization || "", "Bearer " + (env.CRON_SECRET || "\u0000"))) return true;
+  // Crons de Vercel (mandan "Authorization: Bearer <CRON_SECRET>"): el diario y el del día 5.
+  if ((c.ruta === "/api/cron" || c.ruta.startsWith("/api/cron/")) && igual(c.authorization || "", "Bearer " + (env.CRON_SECRET || "\u0000"))) return true;
   return valida(c.cookie);
 }
 

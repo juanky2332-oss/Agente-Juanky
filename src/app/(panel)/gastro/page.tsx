@@ -27,15 +27,16 @@ async function comprimir(f: File): Promise<{ base64: string; mime: string }> {
 }
 
 export default function Gastro() {
-  const { datos, error, cargando, recargar } = useApi<{ restaurantes: F[]; vinos: F[] }>("/api/gastro");
-  const [que, setQue] = useState<"restaurantes" | "vinos">("restaurantes");
+  const { datos, error, cargando, recargar } = useApi<{ restaurantes: F[]; vinos: F[]; vermuts?: F[] }>("/api/gastro");
+  const [que, setQue] = useState<"restaurantes" | "vinos" | "vermuts">("restaurantes");
+  const bebida = que === "vermuts" ? "vermut" : "vino"; // la foto y la ficha van por bebida
   const [estado, setEstado] = useState<string>("");
   const [q, setQ] = useState("");
   const [modal, setModal] = useState<null | { accion: "apuntar" | "alta"; nombre: string }>(null);
   const [f, setF] = useState({ nota: "", comentario: "", platos: "", quien: "" });
   const [resultado, setResultado] = useState("");
   const [enviando, setEnviando] = useState(false);
-  const [ver, setVer] = useState<F | null>(null); // vino con la ficha abierta
+  const [ver, setVer] = useState<F | null>(null); // vino o vermut con la ficha abierta
   const [ocupado, setOcupado] = useState(""); // texto mientras lee la foto o investiga
   const inputFoto = useRef<HTMLInputElement>(null);
   const c = useColores();
@@ -43,11 +44,12 @@ export default function Gastro() {
   // Foto de la botella: la IA lee la etiqueta y el motor del bot lo investiga y lo guarda.
   const subirFoto = async (archivo?: File) => {
     if (!archivo) return;
-    setOcupado("Leyendo la etiqueta e investigando el vino (bodega, Guía Peñín, tiendas)… tarda unos 30-60 s");
+    const b = bebida;
+    setOcupado(b === "vermut" ? "Leyendo la etiqueta e investigando el vermut (marca, premios, tiendas)… tarda unos 30-60 s" : "Leyendo la etiqueta e investigando el vino (bodega, Guía Peñín, tiendas)… tarda unos 30-60 s");
     try {
       const img = await comprimir(archivo);
-      const r = await llamar<{ resultado: string }>("/api/gastro/foto", "POST", img);
-      setQue("vinos");
+      const r = await llamar<{ resultado: string }>("/api/gastro/foto", "POST", { ...img, bebida: b });
+      setQue(b === "vermut" ? "vermuts" : "vinos");
       setResultado(r.resultado);
       recargar();
     } catch (e) {
@@ -58,12 +60,12 @@ export default function Gastro() {
     }
   };
 
-  // Vuelve a investigar un vino ya apuntado (rehace su ficha del sumiller).
+  // Vuelve a investigar un vino o vermut ya apuntado (rehace su ficha).
   const investigar = async (x: F) => {
     setVer(null);
     setOcupado(`Investigando ${x.NOMBRE}… tarda unos 30 s`);
     try {
-      const r = await llamar<{ resultado: string }>("/api/gastro", "POST", { que: "vinos", accion: "enriquecer", nombre: "#V" + x.fila });
+      const r = await llamar<{ resultado: string }>("/api/gastro", "POST", { que, accion: "enriquecer", nombre: (que === "vermuts" ? "#M" : "#V") + x.fila });
       setResultado(r.resultado);
       recargar();
     } catch (e) {
@@ -75,14 +77,15 @@ export default function Gastro() {
 
   const lista = useMemo(() => {
     const t = normaliza(q);
-    return ((que === "restaurantes" ? datos?.restaurantes : datos?.vinos) || [])
+    return ((que === "restaurantes" ? datos?.restaurantes : que === "vermuts" ? datos?.vermuts : datos?.vinos) || [])
       .filter((x) => (!estado || normaliza(x.ESTADO) === estado) && (!t || normaliza(Object.values(x).join(" ")).includes(t)))
       .sort((a, b) => num(b.NOTA) - num(a.NOTA) || (a.NOMBRE || "").localeCompare(b.NOMBRE || ""));
   }, [datos, que, estado, q]);
 
   const rs = datos?.restaurantes || [];
   const visitados = rs.filter((r) => num(r.VISITAS) > 0 || normaliza(r.ESTADO) === "visitado");
-  const conNota = [...rs, ...(datos?.vinos || [])].filter((x) => num(x.NOTA) > 0);
+  const ms = datos?.vermuts || [];
+  const conNota = [...rs, ...(datos?.vinos || []), ...ms].filter((x) => num(x.NOTA) > 0);
   const vs = datos?.vinos || [];
   // Reparto por un campo (zona, cocina, tipo, D.O.): top 5 + "Otros", color por orden fijo
   const reparto = (xs: F[], campo: string) => {
@@ -93,7 +96,8 @@ export default function Gastro() {
   const histo = (xs: F[]) => Array.from({ length: 10 }, (_, k) => ({ mes: String(k + 1), Valoraciones: xs.filter((x) => Math.round(num(x.NOTA)) === k + 1).length }));
   const pendientes = rs.filter((r) => normaliza(r.ESTADO) === "pendiente");
   const recomendado = pendientes.find((r) => (r["RECOMENDADO POR"] || "").trim()) || pendientes[0];
-  const actual = que === "restaurantes" ? rs : vs;
+  const actual = que === "restaurantes" ? rs : que === "vermuts" ? ms : vs;
+  const bebidas = que === "vermuts" ? ms : vs; // la pestaña de bebida que se está viendo
   const mediaActual = (() => { const n = actual.filter((x) => num(x.NOTA) > 0); return n.length ? n.reduce((s2, x) => s2 + num(x.NOTA), 0) / n.length : 0; })();
 
   const enviar = async () => {
@@ -120,11 +124,11 @@ export default function Gastro() {
 
   return (
     <div>
-      <Titulo titulo="Guía gastro" sub="Restaurantes de Murcia y vinos. Mismo motor que /resto y /vino del bot: cada vino nuevo lo investiga un sumiller en internet (bodega, origen, Guía Peñín, precio de mercado)."
+      <Titulo titulo="Guía gastro" sub="Restaurantes de Murcia, vinos y vermuts. Mismo motor que /resto, /vino y /vermut del bot: cada vino o vermut nuevo se investiga en internet (quién lo hace, origen, premios, precio de mercado en euros)."
         extra={
           <div className="flex flex-wrap gap-2">
-            <Boton disabled={!!ocupado} onClick={() => inputFoto.current?.click()}>📷 Foto de un vino</Boton>
-            <Boton tipo="primario" onClick={() => (setF({ nota: "", comentario: "", platos: "", quien: "" }), setModal({ accion: "alta", nombre: "" }))}>+ Añadir {que === "vinos" ? "vino" : "restaurante"}</Boton>
+            <Boton disabled={!!ocupado} onClick={() => inputFoto.current?.click()}>📷 Foto de un {bebida}</Boton>
+            <Boton tipo="primario" onClick={() => (setF({ nota: "", comentario: "", platos: "", quien: "" }), setModal({ accion: "alta", nombre: "" }))}>+ Añadir {que === "restaurantes" ? "restaurante" : bebida}</Boton>
             <input ref={inputFoto} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => subirFoto(e.target.files?.[0])} />
           </div>
         } />
@@ -139,7 +143,7 @@ export default function Gastro() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <Kpi etiqueta="Restaurantes" valor={rs.length} sub={`${visitados.length} visitados`} />
         <Kpi etiqueta="Pendientes de probar" valor={rs.filter((r) => normaliza(r.ESTADO) === "pendiente").length} />
-        <Kpi etiqueta="Vinos catados" valor={datos?.vinos.length || 0} />
+        <Kpi etiqueta="Vinos catados" valor={datos?.vinos.length || 0} sub={`${ms.length} vermuts`} />
         <Kpi etiqueta="Nota media" valor={conNota.length ? (conNota.reduce((s, x) => s + num(x.NOTA), 0) / conNota.length).toLocaleString("es-ES", { maximumFractionDigits: 1 }) : "—"} sub={`${conNota.length} valoraciones`} />
       </div>
       {resultado && (
@@ -150,6 +154,7 @@ export default function Gastro() {
       <div className="mb-4 flex gap-1.5">
         <Chip activo={que === "restaurantes"} onClick={() => (setQue("restaurantes"), setEstado(""))}>🍽 Restaurantes ({rs.length})</Chip>
         <Chip activo={que === "vinos"} onClick={() => (setQue("vinos"), setEstado(""))}>🍷 Vinos ({vs.length})</Chip>
+        <Chip activo={que === "vermuts"} onClick={() => (setQue("vermuts"), setEstado(""))}>🍸 Vermuts ({ms.length})</Chip>
       </div>
       <div className="grid gap-4 lg:grid-cols-3 mb-4">
         {que === "restaurantes" ? (
@@ -176,15 +181,15 @@ export default function Gastro() {
           </>
         ) : (
           <>
-            <Tarjeta titulo="Por tipo" sub="Tinto, blanco, rosado…">
-              <Donut alto={170} items={reparto(vs, "TIPO")} formato={(n) => String(n)} onClick={(k) => setQ(k === "Sin dato" ? "" : k)} />
+            <Tarjeta titulo={que === "vermuts" ? "Por estilo" : "Por tipo"} sub={que === "vermuts" ? "Rojo, blanco, reserva…" : "Tinto, blanco, rosado…"}>
+              <Donut alto={170} items={reparto(bebidas, "TIPO")} formato={(n) => String(n)} onClick={(k) => setQ(k === "Sin dato" ? "" : k)} />
             </Tarjeta>
-            <Tarjeta titulo="Por denominación de origen" sub="Toca para filtrar">
-              <Donut alto={170} items={reparto(vs, "DO")} formato={(n) => String(n)} onClick={(k) => setQ(k === "Sin dato" ? "" : k)} />
+            <Tarjeta titulo={que === "vermuts" ? "Por marca" : "Por denominación de origen"} sub="Toca para filtrar">
+              <Donut alto={170} items={reparto(bebidas, que === "vermuts" ? "MARCA" : "DO")} formato={(n) => String(n)} onClick={(k) => setQ(k === "Sin dato" ? "" : k)} />
             </Tarjeta>
             <Tarjeta titulo="Mejor relación calidad-precio" sub="Nota ÷ precio, entre los que tienen las dos">
               <Ranking
-                items={vs.filter((v) => num(v.NOTA) > 0 && num(v.PRECIO) > 0).map((v) => ({ nombre: v.NOMBRE, valor: num(v.NOTA) / num(v.PRECIO), clave: v.NOMBRE + v.fila, sub: `${v.NOTA}/10 · ${v.PRECIO}`, color: c.s4 }))
+                items={bebidas.filter((v) => num(v.NOTA) > 0 && num(v.PRECIO) > 0).map((v) => ({ nombre: v.NOMBRE, valor: num(v.NOTA) / num(v.PRECIO), clave: v.NOMBRE + v.fila, sub: `${v.NOTA}/10 · ${v.PRECIO}`, color: c.s4 }))
                   .sort((a, b) => b.valor - a.valor).slice(0, 5)}
                 formato={(n) => n.toLocaleString("es-ES", { maximumFractionDigits: 2 }) + " pts/€"} vacio="Faltan notas o precios"
               />
@@ -193,10 +198,10 @@ export default function Gastro() {
         )}
       </div>
       <Tarjeta className="mb-4" titulo="Cómo puntuáis" sub={`Reparto de notas en ${que} · media ${mediaActual ? mediaActual.toLocaleString("es-ES", { maximumFractionDigits: 1 }) : "—"}`}>
-        <BarrasSimples datos={histo(actual)} clave="Valoraciones" color={que === "vinos" ? c.s8 : c.s1} alto={170} formato={(n) => `${n} ${n === 1 ? "valoración" : "valoraciones"}`} etiquetaX={(v) => v} />
+        <BarrasSimples datos={histo(actual)} clave="Valoraciones" color={que === "restaurantes" ? c.s1 : que === "vermuts" ? c.s4 : c.s8} alto={170} formato={(n) => `${n} ${n === 1 ? "valoración" : "valoraciones"}`} etiquetaX={(v) => v} />
       </Tarjeta>
       <div className="grid gap-4 lg:grid-cols-3">
-        <Tarjeta className="lg:col-span-2" titulo={que === "restaurantes" ? "Restaurantes" : "Vinos"}
+        <Tarjeta className="lg:col-span-2" titulo={que === "restaurantes" ? "Restaurantes" : que === "vermuts" ? "Vermuts" : "Vinos"}
           extra={
             <div className="flex flex-wrap gap-1.5">
               {que === "restaurantes" && ["", "pendiente", "visitado"].map((e) => <Chip key={e} activo={estado === e} onClick={() => setEstado(e)}>{e || "todos"}</Chip>)}
@@ -208,20 +213,22 @@ export default function Gastro() {
               {lista.map((x) => (
                 <li key={x.fila} className="flex items-start justify-between gap-3 py-2.5">
                   <div className="min-w-0">
-                    {que === "vinos" ? (
+                    {que !== "restaurantes" ? (
                       <button className="text-left font-medium hover:text-acento hover:underline" onClick={() => setVer(x)}>
-                        {x.NOMBRE} <span className="text-[11px] text-txt-3">#V{x.fila}</span>
+                        {x.NOMBRE} <span className="text-[11px] text-txt-3">{que === "vermuts" ? "#M" : "#V"}{x.fila}</span>
                         {!leerFicha(x) && <span className="ml-1.5 rounded bg-card-2 px-1.5 py-0.5 text-[10px] font-normal text-txt-3">sin investigar</span>}
                       </button>
                     ) : (
                       <div className="font-medium">{x.NOMBRE} <span className="text-[11px] text-txt-3">#R{x.fila}</span></div>
                     )}
                     <div className="text-xs text-txt-3">
-                      {que === "vinos"
+                      {que === "vermuts"
+                        ? [x.MARCA, x.ORIGEN, x.TIPO, x["VINO BASE"], x.PRECIO, num(x.NOTA) > 0 ? "" : "sin probar"].filter(Boolean).join(" · ")
+                        : que === "vinos"
                         ? [x.BODEGA, x.DO, x.TIPO, x.UVA, x["AÑADA"], x.PRECIO].filter(Boolean).join(" · ")
                         : [x.ZONA, x.COCINA, x.ESTADO, num(x.VISITAS) ? `${x.VISITAS} visitas` : "", x["ULTIMA VISITA"]].filter(Boolean).join(" · ")}
                     </div>
-                    {que === "vinos"
+                    {que !== "restaurantes"
                       ? comentariosSuyos(x.COMENTARIO).length > 0 && <div className="mt-1 text-xs text-txt-2 line-clamp-2">{comentariosSuyos(x.COMENTARIO).join(" · ")}</div>
                       : x.COMENTARIO && <div className="mt-1 text-xs text-txt-2 line-clamp-2">{x.COMENTARIO}</div>}
                   </div>
@@ -238,10 +245,10 @@ export default function Gastro() {
           <Ranking items={conNota.sort((a, b) => num(b.NOTA) - num(a.NOTA)).slice(0, 10).map((x) => ({ nombre: x.NOMBRE, valor: num(x.NOTA), color: c.s1, clave: x.NOMBRE + x.fila }))} max={10} formato={(n) => n.toLocaleString("es-ES") + "/10"} vacio="Aún no hay valoraciones" />
         </Tarjeta>
       </div>
-      <Modal abierto={!!ver} cerrar={() => setVer(null)} titulo={ver ? `🍷 ${ver.NOMBRE}${ver["AÑADA"] ? " " + ver["AÑADA"] : ""}` : ""} ancho="max-w-xl">
+      <Modal abierto={!!ver} cerrar={() => setVer(null)} titulo={ver ? `${que === "vermuts" ? "🍸" : "🍷"} ${ver.NOMBRE}${ver["AÑADA"] ? " " + ver["AÑADA"] : ""}` : ""} ancho="max-w-xl">
         {ver && (
           <div className="grid gap-4">
-            <FichaVino v={ver} ficha={leerFicha(ver)} />
+            <FichaVino v={ver} ficha={leerFicha(ver)} vermut={que === "vermuts"} />
             <div className="flex flex-wrap justify-end gap-2">
               <Boton disabled={!!ocupado} onClick={() => investigar(ver)}>🔎 {leerFicha(ver) ? "Investigar de nuevo" : "Investigar"}</Boton>
               <Boton tipo="primario" onClick={() => { const n = ver.NOMBRE; setVer(null); setF({ nota: "", comentario: "", platos: "", quien: "" }); setModal({ accion: "apuntar", nombre: n }); }}>Valorar</Boton>
@@ -249,13 +256,14 @@ export default function Gastro() {
           </div>
         )}
       </Modal>
-      <Modal abierto={!!modal} cerrar={() => setModal(null)} titulo={modal?.accion === "alta" ? `Nuevo ${que === "vinos" ? "vino" : "restaurante"}` : `Valorar ${modal?.nombre}`} ancho="max-w-lg">
+      <Modal abierto={!!modal} cerrar={() => setModal(null)} titulo={modal?.accion === "alta" ? `Nuevo ${que === "restaurantes" ? "restaurante" : bebida}` : `Valorar ${modal?.nombre}`} ancho="max-w-lg">
         {modal && (
           <div className="grid gap-3">
             {modal.accion === "alta" && (
               <>
                 <Campo etiqueta="Nombre"><input className={inputCls} value={modal.nombre} onChange={(e) => setModal({ ...modal, nombre: e.target.value })} /></Campo>
                 {que === "restaurantes" && <Campo etiqueta="Recomendado por"><input className={inputCls} value={f.quien} onChange={(e) => setF({ ...f, quien: e.target.value })} /></Campo>}
+                {que === "vermuts" && <p className="text-xs text-txt-3">Si es nuevo, lo investigo en internet: marca, vino base, botánicos, premios, cómo servirlo y precio en euros (tarda unos 30 s). Sin nota queda como «sin probar».</p>}
                 {que === "vinos" && <p className="text-xs text-txt-3">Si el vino es nuevo, el sumiller lo investiga en internet: bodega, origen, crianza, cata, Guía Peñín y precio de mercado (tarda unos 30 s). Con una foto de la etiqueta es más fiable.</p>}
               </>
             )}

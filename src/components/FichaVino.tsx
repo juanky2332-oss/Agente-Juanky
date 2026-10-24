@@ -1,12 +1,15 @@
 "use client";
 // La ficha del sumiller de un vino: lo que el motor GUIA GASTRO investigó en internet (columna
 // FICHA de la hoja Vinos, en JSON) junto con lo que es SUYO (nota y comentarios).
+// También vale para los vermuts (hoja Vermut): mismas piezas con otros nombres (marca, vino base...).
 
 export interface Investigacion {
   nombre_real?: string; bodega?: string; do?: string; tipo?: string; uva?: string; anada?: string; graduacion?: string;
   precio?: string; precio_mercado?: string; bodega_info?: string; origen?: string; crianza?: string; cata?: string;
   puntuaciones?: string; veredicto?: string; maridaje?: string; temperatura?: string; guarda?: string; curiosidad?: string;
   fuentes?: { web: string; url: string }[]; investigado?: string;
+  // Vermut
+  marca?: string; marca_info?: string; elaboracion?: string; vino_base?: string; botanicos?: string; servir?: string;
 }
 
 export function leerFicha(x: Record<string, string>): Investigacion | null {
@@ -36,15 +39,28 @@ const BLOQUES: [keyof Investigacion, string, string][] = [
   ["curiosidad", "💡", "Curiosidad"],
 ];
 
-export function FichaVino({ v, ficha }: { v: Record<string, string>; ficha: Investigacion | null }) {
-  const cab = [v.BODEGA, v.DO, v.TIPO, ficha?.graduacion].filter(Boolean).join(" · ");
+const BLOQUES_VERMUT: [keyof Investigacion, string, string][] = [
+  ["marca_info", "🏠", "Quién lo hace"],
+  ["elaboracion", "🛢", "Elaboración"],
+  ["cata", "👃", "En copa"],
+  ["puntuaciones", "🏅", "Premios y valoraciones"],
+  ["veredicto", "⚖️", "Veredicto"],
+  ["servir", "🧊", "Cómo servirlo"],
+  ["maridaje", "🫒", "Con qué tomarlo"],
+  ["curiosidad", "💡", "Curiosidad"],
+];
+
+export function FichaVino({ v, ficha, vermut = false }: { v: Record<string, string>; ficha: Investigacion | null; vermut?: boolean }) {
+  const cab = (vermut ? [v.MARCA, v.ORIGEN, v.TIPO, ficha?.graduacion] : [v.BODEGA, v.DO, v.TIPO, ficha?.graduacion]).filter(Boolean).join(" · ");
   const suyos = comentariosSuyos(v.COMENTARIO);
-  const servir = [ficha?.temperatura ? `Servir a ${ficha.temperatura}` : "", ficha?.guarda || ""].filter(Boolean).join(" · ");
+  const servir = vermut ? "" : [ficha?.temperatura ? `Servir a ${ficha.temperatura}` : "", ficha?.guarda || ""].filter(Boolean).join(" · ");
   return (
     <div className="grid gap-4 text-sm">
       <div>
         {cab && <div className="text-txt-2">{cab}</div>}
-        {v.UVA && <div className="mt-0.5 text-txt-2">🍇 {v.UVA}{v["AÑADA"] ? ` · añada ${v["AÑADA"]}` : ""}</div>}
+        {!vermut && v.UVA && <div className="mt-0.5 text-txt-2">🍇 {v.UVA}{v["AÑADA"] ? ` · añada ${v["AÑADA"]}` : ""}</div>}
+        {vermut && v["VINO BASE"] && <div className="mt-0.5 text-txt-2">🍇 Base: {v["VINO BASE"]}</div>}
+        {vermut && v["BOTÁNICOS / NOTAS"] && <div className="mt-0.5 text-txt-2">🌿 {v["BOTÁNICOS / NOTAS"]}</div>}
         {ficha?.nombre_real && ficha.nombre_real.toLowerCase() !== (v.NOMBRE || "").toLowerCase() && (
           <div className="mt-1 text-xs text-txt-3">En las fuentes aparece como «{ficha.nombre_real}»</div>
         )}
@@ -71,7 +87,7 @@ export function FichaVino({ v, ficha }: { v: Record<string, string>; ficha: Inve
 
       {ficha ? (
         <div className="grid gap-2.5">
-          {BLOQUES.filter(([k]) => ficha[k]).map(([k, ico, tit]) => (
+          {(vermut ? BLOQUES_VERMUT : BLOQUES).filter(([k]) => ficha[k]).map(([k, ico, tit]) => (
             <div key={k}>
               <div className="text-[11px] uppercase tracking-wide text-txt-3">{ico} {tit}</div>
               <div className="mt-0.5 leading-relaxed">{String(ficha[k])}</div>
@@ -92,7 +108,7 @@ export function FichaVino({ v, ficha }: { v: Record<string, string>; ficha: Inve
           )}
         </div>
       ) : (
-        <p className="rounded-xl bg-card-2 p-3 text-txt-3">Todavía no está investigado. Dale a «Investigar» y el sumiller busca su ficha técnica, la Guía Peñín y el precio en tiendas.</p>
+        <p className="rounded-xl bg-card-2 p-3 text-txt-3">Todavía no está investigado. {vermut ? "Dale a «Investigar» y lo busco en la web de la marca, premios y tiendas." : "Dale a «Investigar» y el sumiller busca su ficha técnica, la Guía Peñín y el precio en tiendas."}</p>
       )}
     </div>
   );

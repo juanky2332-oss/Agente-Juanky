@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aCobro, escalarPagosCliente, montarIngresos, resumir } from "./ingresos";
+import { aCobro, escalarPagosCliente, montarIngresos, resumir, textoRecordatorioIngresos } from "./ingresos";
 
 const HOY = "2026-10-13";
 const fila = (n: number, o: Record<string, string>) => ({ fila: n, o });
@@ -119,5 +119,34 @@ describe("escalarPagosCliente: cambio de reparto (30 % a 60 %)", () => {
     expect(escalarPagosCliente(ing("30", [cobro(2, "I050", 30, "flownexion")]), 30).size).toBe(0);
     expect(escalarPagosCliente(ing("", [cobro(2, "I050", 30, "flownexion")]), 60).size).toBe(0);
     expect(escalarPagosCliente(ing("30", [cobro(2, "I050", 30, "yo")]), 60).size).toBe(0);
+  });
+});
+
+describe("textoRecordatorioIngresos (día 5, datos inventados)", () => {
+  const xs = montarIngresos(
+    [
+      fila(2, { ID: "P-P01-2026-09", NEGOCIO: "Taller", CONCEPTO: "Mantenimiento demo", IMPORTE: "50", TIPO: "mantenimiento", FECHA: "01/09/2026" }),
+      fila(3, { ID: "P-P01-2026-10", NEGOCIO: "Taller", CONCEPTO: "Mantenimiento demo", IMPORTE: "50", TIPO: "mantenimiento", FECHA: "01/10/2026" }),
+      fila(4, { ID: "I050", NEGOCIO: "Flownexion", CLIENTE: "Proyecto demo", CONCEPTO: "Mto demo 60 %", IMPORTE: "120", TIPO: "mantenimiento", FECHA: "01/10/2026" }),
+      fila(5, { ID: "I051", NEGOCIO: "Taller", CONCEPTO: "Eje demo", IMPORTE: "30", TIPO: "trabajo", FECHA: "10/07/2026" }),
+      fila(6, { ID: "P-P01-2026-07", NEGOCIO: "Taller", CONCEPTO: "Mantenimiento viejo", IMPORTE: "50", TIPO: "mantenimiento", FECHA: "01/07/2026", ESTADO: "anulado" }),
+    ],
+    [cobro(2, "P-P01-2026-09", 50), cobro(3, "I050", 120, "flownexion")],
+    "2026-10-05",
+  );
+  const t = textoRecordatorioIngresos(xs, "2026-10-05");
+  it("pregunta por el mes pasado y por este, con lo cobrado y lo pendiente", () => {
+    expect(t).toContain("Septiembre 2026");
+    expect(t).toContain("Octubre 2026");
+    expect(t).toMatch(/✅ Mantenimiento demo <code>#P-P01-2026-09<\/code> — cobrado 50,00 €/);
+    expect(t).toMatch(/⏳ Mantenimiento demo <code>#P-P01-2026-10<\/code> — te deben <b>50,00 €<\/b>/);
+    expect(t).toContain("🏦 Mto demo 60 %");
+  });
+  it("lo viejo sin cobrar va resumido y lo anulado no sale", () => {
+    expect(t).toContain("Taller y otros: 1 sin cobrar · <b>30,00 €</b>");
+    expect(t).not.toContain("Mantenimiento viejo");
+  });
+  it("enero mira diciembre del año anterior", () => {
+    expect(textoRecordatorioIngresos([], "2027-01-05")).toContain("Diciembre 2026");
   });
 });

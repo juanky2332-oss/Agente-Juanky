@@ -22,6 +22,21 @@ Devuelve SOLO un JSON: {"es_vino":true|false,"texto_etiqueta":"","nombre":"","bo
 - "confianza": "alta" si tienes claro el nombre del vino; "baja" si dudas. "dudas": qué no queda claro, en una frase.
 Lo que no se lea va VACÍO: no lo deduzcas ni lo completes de memoria. Si la foto no es de un vino, "es_vino": false.`;
 
+// Vermut: lo que lo identifica es la MARCA + el ESTILO (rojo, blanco, reserva...).
+const PROMPT_VERMUT = `Es la foto de una botella o etiqueta de VERMUT (vermouth, vermú). LEE LA ETIQUETA ENTERA ANTES DE DECIDIR NADA.
+Devuelve SOLO un JSON: {"es_vino":true|false,"texto_etiqueta":"","nombre":"","bodega":"","do":"","tipo":"","uva":"","anada":"","graduacion":"","confianza":"alta|baja","dudas":""}
+1) "texto_etiqueta": transcribe TODO lo que se lea, también la letra pequeña.
+2) Reparte:
+- "nombre": el nombre comercial con el estilo si lo distingue ("Yzaguirre Rojo Reserva", "Lustau Blanco"). Sin la palabra vermut suelta, sin volumen ni grado.
+- "bodega": la MARCA o quien lo elabora.
+- "do": el ORIGEN si sale (pueblo, región o país).
+- "tipo": el estilo (Rojo, Blanco, Rosado, Seco, Extra seco, Reserva).
+- "uva": el vino base si la etiqueta lo dice. "anada": vacío. "graduacion".
+- "confianza": "alta" o "baja". "dudas": qué no queda claro, en una frase.
+Lo que no se lea va VACÍO: no lo deduzcas. Si la foto no es de un vermut, "es_vino": false.`;
+
+export type Bebida = "vino" | "vermut";
+
 export interface Etiqueta {
   es_vino: boolean;
   nombre: string;
@@ -35,7 +50,7 @@ export interface Etiqueta {
   dudas: string;
 }
 
-export async function leerEtiqueta(base64: string, mime: string): Promise<Etiqueta> {
+export async function leerEtiqueta(base64: string, mime: string, bebida: Bebida = "vino"): Promise<Etiqueta> {
   if (!base64) throw new ErrorN8n("Falta la foto", 400);
   const r = await n8n<{ choices?: { message?: { content?: string } }[] }>(
     {
@@ -45,7 +60,7 @@ export async function leerEtiqueta(base64: string, mime: string): Promise<Etique
         reasoning_effort: "low",
         max_completion_tokens: 3000,
         response_format: { type: "json_object" },
-        messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: `data:${mime || "image/jpeg"};base64,${base64}` } }, { type: "text", text: PROMPT }] }],
+        messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: `data:${mime || "image/jpeg"};base64,${base64}` } }, { type: "text", text: bebida === "vermut" ? PROMPT_VERMUT : PROMPT }] }],
       },
     },
     90000,
@@ -64,19 +79,22 @@ export async function leerEtiqueta(base64: string, mime: string): Promise<Etique
   };
 }
 
-/** Manda el vino al motor GUIA GASTRO (apuntar = crea o valora; si es nuevo, lo investiga). */
-export async function apuntarVino(e: Etiqueta, extra: { nota?: string; comentario?: string; donde?: string } = {}) {
+/** Manda el vino (o el vermut) al motor GUIA GASTRO (apuntar = crea o valora; si es nuevo, lo investiga). */
+export async function apuntarVino(e: Etiqueta, extra: { nota?: string; comentario?: string; donde?: string } = {}, bebida: Bebida = "vino") {
   // "clave: valor; ..." es el formato que entiende el motor. Se quitan los ";" de los valores.
   const limpio = (v: string) => v.replace(/[;\n]+/g, ",").trim();
-  const datos = (
-    [["bodega", e.bodega], ["do", e.do], ["tipo", e.tipo], ["uva", e.uva], ["anada", e.anada], ["graduacion", e.graduacion], ["donde", extra.donde || ""]] as const
-  )
+  // En vermut las mismas casillas se llaman marca / origen / vino_base (el motor las traduce a sus columnas).
+  const campos: [string, string][] =
+    bebida === "vermut"
+      ? [["marca", e.bodega], ["origen", e.do], ["tipo", e.tipo], ["vino_base", e.uva], ["graduacion", e.graduacion], ["donde", extra.donde || ""]]
+      : [["bodega", e.bodega], ["do", e.do], ["tipo", e.tipo], ["uva", e.uva], ["anada", e.anada], ["graduacion", e.graduacion], ["donde", extra.donde || ""]];
+  const datos = campos
     .filter(([, v]) => v && v.trim())
     .map(([k, v]) => `${k}: ${limpio(v)}`)
     .join("; ");
   const r = await webhook<{ ok?: boolean; resultado?: string }>(
     "guia-gastro-test",
-    { que: "vinos", accion: "apuntar", nombre: e.nombre, nota: extra.nota || "", comentario: extra.comentario || "", datos, avisar: "" },
+    { que: bebida === "vermut" ? "vermuts" : "vinos", accion: "apuntar", nombre: e.nombre, nota: extra.nota || "", comentario: extra.comentario || "", datos, avisar: "" },
     150000,
   );
   return { ok: r.ok !== false, resultado: r.resultado || "" };

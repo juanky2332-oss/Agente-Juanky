@@ -37,6 +37,8 @@ describe("accesoPermitido (misma lógica en proxy y en manejar)", () => {
     expect(await accesoPermitido({ ruta: "/api/cron", authorization: "Bearer mal" }, env)).toBe(false);
     expect(await accesoPermitido({ ruta: "/api/cron", authorization: env.CRON_SECRET }, env)).toBe(false);
     expect(await accesoPermitido({ ruta: "/api/finanzas", authorization: "Bearer " + env.CRON_SECRET }, env)).toBe(false);
+    expect(await accesoPermitido({ ruta: "/api/cron/ingresos", authorization: "Bearer " + env.CRON_SECRET }, env)).toBe(true);
+    expect(await accesoPermitido({ ruta: "/api/cronx", authorization: "Bearer " + env.CRON_SECRET }, env)).toBe(false);
   });
   it("sin CRON_SECRET configurado, nadie entra por el cron", async () => {
     expect(await accesoPermitido({ ruta: "/api/cron", authorization: "Bearer " }, {})).toBe(false);

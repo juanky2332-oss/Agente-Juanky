@@ -532,3 +532,46 @@ export function textoProyectos(ps: EstadoProyecto[], filtro = ""): string {
   }
   return L.join("\n").trim();
 }
+
+// ─── Recordatorio del día 5 ────────────────────────────────────────────────────────────────
+
+/**
+ * Texto del recordatorio mensual (día 5): los pagos de cada mes (mantenimientos y apuntes
+ * automáticos P-…) del mes pasado y de este, cobrados o no, y lo que siga pendiente de antes.
+ * Es una PREGUNTA: muchas veces el dinero llega y no se apunta, o cambia un importe.
+ */
+export function textoRecordatorioIngresos(ings: Ingreso[], hoy = hoyISO()): string {
+  const e = (n: number) => n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+  const mesAct = hoy.slice(0, 7);
+  const d = new Date(Date.UTC(+hoy.slice(0, 4), +hoy.slice(5, 7) - 2, 1));
+  const mesAnt = d.toISOString().slice(0, 7);
+  const vivos = ings.filter((x) => x.estado !== "anulado");
+  const esMensual = (x: Ingreso) => x.id.startsWith("P-") || /manten/i.test(x.tipo);
+  const mesDe = (x: Ingreso) => (x.fecha || "").slice(0, 7);
+  const marca = (x: Ingreso) =>
+    x.estado === "cobrado" ? "✅" : x.estado === "sin precio" ? "⚪" : x.negocio === "Flownexion" ? (x.debeFlownexion > 0.005 ? "🏦" : "⏳") : "⏳";
+  const linea = (x: Ingreso) =>
+    `${marca(x)} ${nombreIngreso(x)} — ` +
+    (x.estado === "cobrado" ? `cobrado ${e(x.cobrado)}` : x.importe === null ? "sin importe" : `te deben <b>${e(x.pendiente)}</b>${x.cobrado > 0.005 ? ` (cobrado ${e(x.cobrado)})` : ""}`);
+  const L = [`📅 <b>Día 5: repaso de ingresos</b>`, `¿Se han hecho estos pagos? Si te ha llegado algo que no me has dicho, o ha cambiado algún importe, dímelo y lo apunto.`];
+  for (const [mes, titulo] of [[mesAnt, "mes pasado"], [mesAct, "este mes"]] as const) {
+    const xs = vivos.filter((x) => esMensual(x) && mesDe(x) === mes).sort((a, b) => a.negocio.localeCompare(b.negocio) || a.concepto.localeCompare(b.concepto));
+    L.push("", `<b>${nombreMes(mes)[0].toUpperCase() + nombreMes(mes).slice(1)}</b> (${titulo})`);
+    L.push(...(xs.length ? xs.map(linea) : ["— no hay pagos mensuales apuntados"]));
+  }
+  // Lo de antes que siga sin pagar (trabajos del taller, proyectos, meses viejos).
+  const antes = vivos.filter((x) => x.pendiente > 0.005 && !(esMensual(x) && (mesDe(x) === mesAnt || mesDe(x) === mesAct)));
+  if (antes.length) {
+    const taller = antes.filter((x) => x.negocio !== "Flownexion"), flow = antes.filter((x) => x.negocio === "Flownexion");
+    const suma = (xs: Ingreso[], k: "pendiente" | "debeFlownexion" | "esperaCliente") => Math.round(xs.reduce((s, x) => s + x[k], 0) * 100) / 100;
+    L.push("", "<b>Pendiente de antes</b>");
+    if (taller.length) L.push(`🔧 Taller y otros: ${taller.length} sin cobrar · <b>${e(suma(taller, "pendiente"))}</b>`);
+    if (flow.length) {
+      const ya = suma(flow, "debeFlownexion"), espera = suma(flow, "esperaCliente");
+      L.push(`💻 Flownexion: te debe ya <b>${e(ya)}</b>${espera > 0.005 ? ` · y ${e(espera)} más cuando paguen los clientes` : ""}`);
+    }
+    L.push("El detalle, con <code>/cobros</code>.");
+  }
+  L.push("", "Contesta como quieras: «el taller ya me pagó octubre», «Flownexion me ha pagado septiembre», «todo igual» o <code>/cobrado #ID</code>.");
+  return L.join("\n");
+}
