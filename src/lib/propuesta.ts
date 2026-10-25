@@ -153,7 +153,7 @@ const INCLUYE = [
 ];
 
 const PASOS = [
-  ["Demo", "Videollamada con datos de ejemplo y un presupuesto real de tu taller, con tu margen."],
+  ["Diagnóstico", "Por escrito: un presupuesto real de tu taller con tu margen y un vídeo del programa con datos de ejemplo."],
   ["Semana 1", "Configuración: cargamos tus clientes, tu catálogo y tus tarifas de máquina, taller y material."],
   ["Semanas 2 y 3", "Arranque con tu equipo: presupuestáis, albaranáis y facturáis con el programa y ajustamos lo necesario."],
   ["Tu visto bueno", "Cuando el programa está a tu gusto empieza el mantenimiento (los 3 primeros meses, gratis)."],
