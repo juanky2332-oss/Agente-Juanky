@@ -12,7 +12,7 @@ describe("propuesta PDF", () => {
     const d = validarPeticion({ cliente: "Talleres Demo SL", usuariosExtra: 2, modulos: ["Calculadora de mecanizado", "Reparación de maquinaria"], notas: "Usan SAP en compras; quieren ver el paquete para la asesoría." });
     const r = await generarPropuestaPdf(d, HOY);
     expect(r.paginas).toBe(2);
-    expect(r.archivo).toBe("Propuesta-TransformaConIA-Gestion-Talleres-Demo-SL-2026-10-13.pdf");
+    expect(r.archivo).toBe("Propuesta-IndunexIA-Talleres-Demo-SL-2026-10-13.pdf");
     expect(Buffer.from(r.pdf.slice(0, 5)).toString()).toBe("%PDF-");
     const doc = await PDFDocument.load(r.pdf);
     expect(doc.getPageCount()).toBe(2);
@@ -48,6 +48,6 @@ describe("propuesta PDF", () => {
   });
 
   it("nombre de archivo sin acentos ni símbolos", () => {
-    expect(nombreArchivo("Ñandú & Hijos, S.L.", HOY)).toBe("Propuesta-TransformaConIA-Gestion-Nandu-Hijos-S-L-2026-10-13.pdf");
+    expect(nombreArchivo("Ñandú & Hijos, S.L.", HOY)).toBe("Propuesta-IndunexIA-Nandu-Hijos-S-L-2026-10-13.pdf");
   });
 });

@@ -1,4 +1,4 @@
-// Propuesta comercial de «TransformaConIA Gestión» en PDF (2 páginas). Sin red: solo datos -> bytes.
+// Propuesta comercial de «IndunexIA» en PDF (2 páginas). Sin red: solo datos -> bytes.
 // Tarifa vigente (web transformaconia.com/erp-industria/ y landing, 2026-10): puesta en marcha 690 €
 // (tarifa general 990 €) en un solo pago al empezar (desde 2026-10-25; antes 345 + 345), mantenimiento 69 €/mes con los 3 primeros meses
 // gratis, usuario extra 15 €/mes desde el primer mes, sin permanencia (30 días de aviso). Importes sin IVA y orientativos.
@@ -47,7 +47,7 @@ export function validarPeticion(b: Partial<PeticionPropuesta> | null | undefined
     .slice(0, 12)
     .map((m) => m.slice(0, 60));
   const notas = limpia(b?.notas).slice(0, 400);
-  if (/flownexion/i.test([cliente, notas, ...modulos].join(" "))) throw new ErrorPropuesta("La oferta es de TransformaConIA Gestión: no se puede nombrar a otra marca en el documento.");
+  if (/flownexion/i.test([cliente, notas, ...modulos].join(" "))) throw new ErrorPropuesta("La oferta es de IndunexIA: no se puede nombrar a otra marca en el documento.");
   return { cliente, usuariosExtra: n, modulos, notas };
 }
 
@@ -62,10 +62,10 @@ const fechaCorta = (d0: Date) => { const d = enMadrid(d0); return `${d.getFullYe
 
 const eur = (n: number) => `${n.toLocaleString("es-ES", { maximumFractionDigits: 2 })} €`;
 
-/** Nombre de archivo seguro: Propuesta-TransformaConIA-Gestion-Talleres-Demo-SL-2026-10-13.pdf */
+/** Nombre de archivo seguro: Propuesta-IndunexIA-Talleres-Demo-SL-2026-10-13.pdf */
 export function nombreArchivo(cliente: string, hoy: Date) {
   const slug = cliente.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "cliente";
-  return `Propuesta-TransformaConIA-Gestion-${slug}-${fechaCorta(hoy)}.pdf`;
+  return `Propuesta-IndunexIA-${slug}-${fechaCorta(hoy)}.pdf`;
 }
 
 // ─── Dibujo ────────────────────────────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ const PASOS = [
 /** Genera el PDF de 2 páginas. `hoy` se puede fijar para pruebas. */
 export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): Promise<{ pdf: Uint8Array; archivo: string; paginas: number }> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`Propuesta TransformaConIA Gestión - ${d.cliente}`);
+  doc.setTitle(`Propuesta IndunexIA - ${d.cliente}`);
   doc.setAuthor("Transforma con IA");
   doc.setSubject("Propuesta comercial");
   doc.setCreator("Transforma con IA");
@@ -180,8 +180,9 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
   parrafo(p1, fecha, { x: W - M, y: H - 70, tam: 10, font: f.r, color: C.grey, derecha: true });
 
   p1.drawText("PROPUESTA COMERCIAL", { x: M, y: H - 190, size: 10, font: f.b, color: C.purpleLight });
-  p1.drawText("TransformaConIA", { x: M, y: H - 236, size: 40, font: f.b, color: C.white });
-  p1.drawText("Gestión", { x: M, y: H - 282, size: 40, font: f.b, color: C.purpleLight });
+  p1.drawText("Indunex", { x: M, y: H - 236, size: 40, font: f.b, color: C.white });
+  p1.drawText("IA", { x: M + f.b.widthOfTextAtSize("Indunex", 40), y: H - 236, size: 40, font: f.b, color: C.purpleLight });
+  p1.drawText("de Transforma con IA", { x: M, y: H - 270, size: 14, font: f.b, color: C.purpleLight });
   parrafo(p1, "El programa de gestión (ERP) con IA para la industria: presupuesta, entrega y factura desde un solo sitio, y la IA te hace el papeleo.", { x: M, y: H - 312, tam: 12, font: f.r, color: C.grey, ancho: 430, interlinea: 17 });
 
   p1.drawRectangle({ x: M, y: H - 420, width: 4, height: 66, color: C.purple });
@@ -294,7 +295,7 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
   p2.drawRectangle({ x: 0, y: 0, width: W, height: 70, color: C.dark });
   p2.drawText("¿Lo vemos con tus trabajos y tus precios?", { x: M, y: 42, size: 11, font: f.b, color: C.white });
   p2.drawText("Murcia · en persona en la Región de Murcia y en remoto en toda España", { x: M, y: 26, size: 8.5, font: f.r, color: C.grey });
-  parrafo(p2, TARIFA.contacto, { x: W - M, y: 34, tam: 12, font: f.b, color: C.purpleLight, derecha: true });
+  parrafo(p2, `${TARIFA.contacto} · Instagram @transformaconia.oficial`, { x: W - M, y: 34, tam: 12, font: f.b, color: C.purpleLight, derecha: true });
 
   const pdf = await doc.save();
   return { pdf, archivo: nombreArchivo(d.cliente, hoy), paginas: doc.getPageCount() };
