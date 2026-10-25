@@ -1,9 +1,9 @@
 import { manejar } from "@/lib/ruta";
 import { ErrorN8n } from "@/lib/n8n";
-import { cuotaMensual, ErrorPropuesta, fechaLarga, generarPropuestaPdf, TARIFA, validarPeticion, type PeticionPropuesta } from "@/lib/propuesta";
+import { cuotaMensual, ErrorPropuesta, fechaLarga, generarPropuestaPdf, PLANES, TARIFA, validarPeticion, type PeticionPropuesta } from "@/lib/propuesta";
 
 // Propuesta comercial de «IndunexIA» en PDF (2 páginas) para mandarla por Telegram.
-// Entrada (JSON): { cliente, usuariosExtra?, modulos?, notas? }
+// Entrada (JSON): { cliente, plan? (básico | profesional | pro; por defecto profesional), usuariosExtra?, modulos?, notas? }
 // Salida: { ok, archivo, mime, base64, paginas, cliente, usuariosExtra, cuotaMensual, texto }
 // Protegida como el resto de /api/bot/* (x-app-key del workflow de n8n).
 export const dynamic = "force-dynamic";
@@ -21,8 +21,9 @@ export const POST = manejar(async (req: Request) => {
   }
   const hoy = new Date();
   const { pdf, archivo, paginas } = await generarPropuestaPdf(datos, hoy);
-  const cuota = cuotaMensual(datos.usuariosExtra);
-  const texto = `📄 Propuesta de IndunexIA para ${datos.cliente} (${fechaLarga(hoy)}): puesta en marcha ${TARIFA.puestaEnMarcha} €, ${TARIFA.mesesGratis} meses de mantenimiento gratis y después ${cuota} €/mes${datos.usuariosExtra ? ` (con ${datos.usuariosExtra} usuario${datos.usuariosExtra === 1 ? "" : "s"} extra)` : ""}. Sin IVA.`;
+  const cuota = cuotaMensual(datos.usuariosExtra, datos.plan);
+  const plan = PLANES[datos.plan];
+  const texto = `📄 Propuesta de IndunexIA para ${datos.cliente} (${fechaLarga(hoy)}): plan ${plan.nombre}, puesta en marcha ${plan.puestaEnMarcha} €, ${TARIFA.mesesGratis} meses de mantenimiento gratis y después ${cuota} €/mes${datos.usuariosExtra ? ` (con ${datos.usuariosExtra} usuario${datos.usuariosExtra === 1 ? "" : "s"} extra)` : ""}. Sin IVA.`;
   return {
     ok: true,
     archivo,

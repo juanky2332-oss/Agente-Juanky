@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { cuotaMensual, ErrorPropuesta, generarPropuestaPdf, nombreArchivo, validarPeticion } from "./propuesta";
+import { cuotaMensual, ErrorPropuesta, generarPropuestaPdf, leerPlan, nombreArchivo, validarPeticion } from "./propuesta";
 
 const MUESTRA = "C:/Users/juank/AppData/Local/Temp/claude/C--Users-juank/f95d9abc-c184-4e05-bc03-a89bf78dcea8/scratchpad/propuesta-demo.pdf";
 const HOY = new Date(2026, 9, 13);
@@ -49,5 +49,26 @@ describe("propuesta PDF", () => {
 
   it("nombre de archivo sin acentos ni símbolos", () => {
     expect(nombreArchivo("Ñandú & Hijos, S.L.", HOY)).toBe("Propuesta-IndunexIA-Nandu-Hijos-S-L-2026-10-13.pdf");
+  });
+});
+
+describe("planes", () => {
+  it("lee el plan sin importar tildes ni mayúsculas y por defecto es Profesional", () => {
+    expect(leerPlan("Básico")).toBe("basico");
+    expect(leerPlan("PRO")).toBe("pro");
+    expect(leerPlan("plan profesional")).toBe("profesional");
+    expect(leerPlan("")).toBe("profesional");
+    expect(() => leerPlan("premium")).toThrow(ErrorPropuesta);
+  });
+  it("calcula la cuota de cada plan con los usuarios extra", () => {
+    expect(cuotaMensual(0, "basico")).toBe(59);
+    expect(cuotaMensual(2, "pro")).toBe(89 + 30);
+    expect(validarPeticion({ cliente: "Talleres Demo SL", plan: "pro" }).plan).toBe("pro");
+  });
+  it("genera el PDF de cada plan", async () => {
+    for (const plan of ["basico", "profesional", "pro"] as const) {
+      const r = await generarPropuestaPdf({ cliente: "Talleres Demo SL", plan, usuariosExtra: 0, modulos: [], notas: "" }, HOY);
+      expect(r.paginas).toBe(2);
+    }
   });
 });

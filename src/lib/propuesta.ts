@@ -1,22 +1,53 @@
 // Propuesta comercial de «IndunexIA» en PDF (2 páginas). Sin red: solo datos -> bytes.
-// Tarifa vigente (web transformaconia.com/erp-industria/ y landing, 2026-10): puesta en marcha 690 €
-// (tarifa general 990 €) en un solo pago al empezar (desde 2026-10-25; antes 345 + 345), mantenimiento 69 €/mes con los 3 primeros meses
-// gratis, usuario extra 15 €/mes desde el primer mes, sin permanencia (30 días de aviso). Importes sin IVA y orientativos.
+// Tarifa vigente (oferta.json, web transformaconia.com/erp-industria/ y landing, desde 2026-10-25): tres planes
+// Básico 590 € + 59 €/mes, Profesional 690 € + 69 €/mes y Pro 990 € + 89 €/mes (precios de temporada hasta el 31/12/2026;
+// tarifa general 790 / 990 / 1.490 €). Puesta en marcha en un solo pago al empezar, 3 primeros meses de cuota gratis,
+// usuario extra 15 €/mes desde el primer mes, sin permanencia (30 días de aviso). Importes sin IVA.
 // REGLA: en lo comercial NUNCA aparece «Flownexion».
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { LOGO_PNG_B64, LOGO_ANCHO, LOGO_ALTO } from "./propuestaLogo";
 
+export class ErrorPropuesta extends Error {}
+
+export type IdPlan = "basico" | "profesional" | "pro";
+
+export const PLANES: Record<IdPlan, { nombre: string; puestaEnMarcha: number; puestaEnMarchaGeneral: number; mantenimientoMes: number; incluye: string[] }> = {
+  basico: {
+    nombre: "Básico", puestaEnMarcha: 590, puestaEnMarchaGeneral: 790, mantenimientoMes: 59,
+    incluye: ["Clientes, proveedores y catálogo", "Presupuestos, albaranes y facturas con tu logo", "Del presupuesto a la factura sin teclear", "Envío de documentos por correo", "Cobros y vencimientos con avisos", "Registro de gastos", "Agenda", "1 usuario incluido"],
+  },
+  profesional: {
+    nombre: "Profesional", puestaEnMarcha: 690, puestaEnMarchaGeneral: 990, mantenimientoMes: 69,
+    incluye: ["Todo lo del plan Básico", "Gastos por foto: la IA lee el ticket", "Albaranes y partes firmados en el móvil", "Calculadora de costes y margen", "Fiscal: IVA y paquete para tu asesor", "Informes: ventas, gastos y márgenes", "Avisos por Telegram", "Histórico del año en curso cargado"],
+  },
+  pro: {
+    nombre: "Pro", puestaEnMarcha: 990, puestaEnMarchaGeneral: 1490, mantenimientoMes: 89,
+    incluye: ["Todo lo del plan Profesional", "Asistente con IA propio, también en Telegram", "Presupuesto desde plano con IA", "Todo tu histórico importado", "Una automatización a medida incluida", "Hasta 2 h/mes de ajustes y mejoras", "Soporte prioritario"],
+  },
+};
+
+/** Común a todos los planes. puestaEnMarcha y mantenimientoMes son los del plan Profesional (el de por defecto). */
 export const TARIFA = {
-  puestaEnMarcha: 690,
-  puestaEnMarchaGeneral: 990,
-  mantenimientoMes: 69,
+  puestaEnMarcha: PLANES.profesional.puestaEnMarcha,
+  puestaEnMarchaGeneral: PLANES.profesional.puestaEnMarchaGeneral,
+  mantenimientoMes: PLANES.profesional.mantenimientoMes,
   mesesGratis: 3,
   usuarioExtraMes: 15,
+  temporadaHasta: "31/12/2026",
   contacto: "info@transformaconia.com",
 } as const;
 
+/** «básico», «Basico», «PRO»… → id del plan. Vacío = Profesional. */
+export function leerPlan(v: unknown): IdPlan {
+  const t = String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/^plan\s+/, "").trim();
+  if (!t) return "profesional";
+  if (t === "basico" || t === "profesional" || t === "pro") return t;
+  throw new ErrorPropuesta("plan tiene que ser básico, profesional o pro.");
+}
+
 export interface PeticionPropuesta {
   cliente: string;
+  plan?: string;
   usuariosExtra?: number | string;
   modulos?: string[] | string;
   notas?: string;
@@ -24,12 +55,12 @@ export interface PeticionPropuesta {
 
 export interface DatosPropuesta {
   cliente: string;
+  plan: IdPlan;
   usuariosExtra: number;
   modulos: string[];
   notas: string;
 }
 
-export class ErrorPropuesta extends Error {}
 
 const limpia = (v: unknown) => String(v ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
 
@@ -48,11 +79,11 @@ export function validarPeticion(b: Partial<PeticionPropuesta> | null | undefined
     .map((m) => m.slice(0, 60));
   const notas = limpia(b?.notas).slice(0, 400);
   if (/flownexion/i.test([cliente, notas, ...modulos].join(" "))) throw new ErrorPropuesta("La oferta es de IndunexIA: no se puede nombrar a otra marca en el documento.");
-  return { cliente, usuariosExtra: n, modulos, notas };
+  return { cliente, plan: leerPlan(b?.plan), usuariosExtra: n, modulos, notas };
 }
 
 /** Cuota mensual a partir del mes 4: mantenimiento + usuarios extra (estos se cobran ya desde el mes 1). */
-export const cuotaMensual = (usuariosExtra: number) => TARIFA.mantenimientoMes + usuariosExtra * TARIFA.usuarioExtraMes;
+export const cuotaMensual = (usuariosExtra: number, plan: IdPlan = "profesional") => PLANES[plan].mantenimientoMes + usuariosExtra * TARIFA.usuarioExtraMes;
 
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 // En Vercel el reloj va en UTC: la fecha del PDF es la de Madrid.
@@ -60,7 +91,8 @@ const enMadrid = (d: Date) => new Date(d.toLocaleString("en-US", { timeZone: "Eu
 export const fechaLarga = (d: Date) => { const m = enMadrid(d); return `${m.getDate()} de ${MESES[m.getMonth()]} de ${m.getFullYear()}`; };
 const fechaCorta = (d0: Date) => { const d = enMadrid(d0); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` };
 
-const eur = (n: number) => `${n.toLocaleString("es-ES", { maximumFractionDigits: 2 })} €`;
+// es-ES no pone el punto de miles en números de 4 cifras (1490): se fuerza para que salga 1.490
+const eur = (n: number) => `${n.toLocaleString("es-ES", { maximumFractionDigits: 2, useGrouping: "always" } as Intl.NumberFormatOptions)} €`;
 
 /** Nombre de archivo seguro: Propuesta-IndunexIA-Talleres-Demo-SL-2026-10-13.pdf */
 export function nombreArchivo(cliente: string, hoy: Date) {
@@ -139,18 +171,6 @@ function parrafo(p: PDFPage, texto: string, o: Opc): number {
   return y;
 }
 
-const INCLUYE = [
-  "Calculadora de costes y precios",
-  "Presupuestos con tu logo en un clic",
-  "Albaranes y partes firmados en el móvil",
-  "Facturas, cobros y vencimientos",
-  "Gastos por foto en Telegram",
-  "Fiscal y asesor: paquete trimestral",
-  "Agenda compartida del equipo",
-  "Informes: facturado, cobrado, pendiente",
-  "Asistente de IA que pide confirmación",
-  "Usuarios con permisos por perfil",
-];
 
 const PASOS = [
   ["Diagnóstico", "Por escrito: un presupuesto real de tu taller con tu margen y un vídeo del programa con datos de ejemplo."],
@@ -169,6 +189,8 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
   const f: Fuentes = { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold) };
   const logo = await doc.embedPng(Buffer.from(LOGO_PNG_B64, "base64"));
   const fecha = fechaLarga(hoy);
+  const plan = PLANES[d.plan];
+  const INCLUYE = plan.incluye;
 
   // ───────── Página 1: portada ─────────
   const p1 = doc.addPage([W, H]);
@@ -190,7 +212,7 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
   parrafo(p1, d.cliente, { x: M + 16, y: H - 392, tam: 22, font: f.b, color: C.white, ancho: W - 2 * M - 16, interlinea: 26, maxLineas: 2 });
 
   let y = H - 468;
-  p1.drawText("QUÉ INCLUYE", { x: M, y, size: 10, font: f.b, color: C.purpleLight });
+  p1.drawText(`QUÉ INCLUYE EL PLAN ${plan.nombre.toUpperCase()}`, { x: M, y, size: 10, font: f.b, color: C.purpleLight });
   y -= 24;
   const colW = (W - 2 * M) / 2;
   INCLUYE.forEach((t, k) => {
@@ -229,8 +251,8 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
 
   const n = d.usuariosExtra;
   const filas: { t: string; det: string; imp: string; sub?: string }[] = [
-    { t: "Puesta en marcha", det: "Configuración a tu manera y arranque con tu equipo. Un solo pago al empezar.", imp: eur(TARIFA.puestaEnMarcha), sub: `Oferta de lanzamiento (tarifa general ${eur(TARIFA.puestaEnMarchaGeneral)})` },
-    { t: "Mantenimiento", det: `Soporte, copias de seguridad y mejoras. Los ${TARIFA.mesesGratis} primeros meses, gratis.`, imp: `${eur(TARIFA.mantenimientoMes)}/mes` },
+    { t: `Puesta en marcha · plan ${plan.nombre}`, det: "Configuración a tu manera y arranque con tu equipo. Un solo pago al empezar.", imp: eur(plan.puestaEnMarcha), sub: `Precio de temporada (tarifa general ${eur(plan.puestaEnMarchaGeneral)})` },
+    { t: "Mantenimiento", det: `Soporte, copias de seguridad y mejoras. Los ${TARIFA.mesesGratis} primeros meses, gratis.`, imp: `${eur(plan.mantenimientoMes)}/mes` },
     n > 0
       ? { t: `Usuarios extra (${n})`, det: `${n} ${n === 1 ? "usuario adicional" : "usuarios adicionales"} con sus propios permisos, a ${eur(TARIFA.usuarioExtraMes)} por usuario y mes desde el primer mes (no entran en los meses gratis).`, imp: `${eur(n * TARIFA.usuarioExtraMes)}/mes` }
       : { t: "Usuarios extra", det: "Oficina o encargado adicionales con sus propios permisos, si los necesitas.", imp: `${eur(TARIFA.usuarioExtraMes)}/mes`, sub: "por usuario" },
@@ -247,13 +269,13 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
 
   // Resumen de pagos
   y -= 16;
-  const cuota = cuotaMensual(n);
+  const cuota = cuotaMensual(n, d.plan);
   p2.drawRectangle({ x: M, y: y - 92, width: W - 2 * M, height: 92, color: C.purpleSoft, borderColor: C.purple, borderWidth: 0.8 });
   p2.drawText("RESUMEN DE PAGOS", { x: M + 14, y: y - 20, size: 8.5, font: f.b, color: C.purpleDark });
   const celdas: [string, string, string][] = [
-    ["Al empezar", eur(TARIFA.puestaEnMarcha), "puesta en marcha, pago único"],
+    ["Al empezar", eur(plan.puestaEnMarcha), "puesta en marcha, pago único"],
     [`Meses 1 a ${TARIFA.mesesGratis}`, n > 0 ? `${eur(n * TARIFA.usuarioExtraMes)}/mes` : eur(0), n > 0 ? "solo los usuarios extra" : "mantenimiento gratis"],
-    [`Desde el mes ${TARIFA.mesesGratis + 1}`, `${eur(cuota)}/mes`, n > 0 ? `${eur(TARIFA.mantenimientoMes)} + ${n} x ${eur(TARIFA.usuarioExtraMes)}` : "mantenimiento"],
+    [`Desde el mes ${TARIFA.mesesGratis + 1}`, `${eur(cuota)}/mes`, n > 0 ? `${eur(plan.mantenimientoMes)} + ${n} x ${eur(TARIFA.usuarioExtraMes)}` : "mantenimiento"],
   ];
   const cw = (W - 2 * M - 28) / 3;
   celdas.forEach(([a, b, c], k) => {
@@ -270,7 +292,7 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
   const conds = [
     "Sin permanencia: mes a mes, con 30 días de aviso. Si lo dejas, te llevas tus datos exportados.",
     "El mantenimiento no empieza hasta que el programa está a tu gusto y das el visto bueno.",
-    `Oferta de lanzamiento para las 10 primeras empresas; la tarifa general de puesta en marcha es de ${eur(TARIFA.puestaEnMarchaGeneral)}.`,
+    `Precios de temporada hasta el ${TARIFA.temporadaHasta}; la tarifa general de la puesta en marcha del plan ${plan.nombre} es de ${eur(plan.puestaEnMarchaGeneral)}. También hay planes Básico (desde ${eur(PLANES.basico.puestaEnMarcha)}) y Pro.`,
     "Tus datos, en un servidor propio para tu empresa, en la UE. Tu logo y tus datos en presupuestos, albaranes y facturas.",
   ];
   for (const t of conds) {
@@ -295,7 +317,8 @@ export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): 
   p2.drawRectangle({ x: 0, y: 0, width: W, height: 70, color: C.dark });
   p2.drawText("¿Lo vemos con tus trabajos y tus precios?", { x: M, y: 42, size: 11, font: f.b, color: C.white });
   p2.drawText("Murcia · en persona en la Región de Murcia y en remoto en toda España", { x: M, y: 26, size: 8.5, font: f.r, color: C.grey });
-  parrafo(p2, `${TARIFA.contacto} · Instagram @transformaconia.oficial`, { x: W - M, y: 34, tam: 12, font: f.b, color: C.purpleLight, derecha: true });
+  parrafo(p2, TARIFA.contacto, { x: W - M, y: 42, tam: 12, font: f.b, color: C.purpleLight, derecha: true });
+  parrafo(p2, "Instagram @transformaconia.oficial", { x: W - M, y: 26, tam: 9, font: f.r, color: C.grey, derecha: true });
 
   const pdf = await doc.save();
   return { pdf, archivo: nombreArchivo(d.cliente, hoy), paginas: doc.getPageCount() };
