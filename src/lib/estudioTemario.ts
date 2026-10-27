@@ -238,7 +238,7 @@ export const TEMARIO: Leccion[] = [
     frase: "SaaS = software que se alquila por suscripción; MRR = ingresos recurrentes de cada mes.",
     explicacion: "El valor de un negocio de software está en lo recurrente: 20 clientes a 69 €/mes son 1.380 € de MRR que llegan cada mes sin vender de nuevo. Por eso cada producto debería llevar cuota (mantenimiento, consumo de IA, mejoras) además del montaje.",
     analogia: "Un alquiler en vez de una venta: menos de golpe, pero cada mes.",
-    enTusApps: "IndunexIA (planes 59/69/89 €/mes), cuotas de asistentes y automatizaciones.",
+    enTusApps: "IndunexIA Gestión (planes 59/69/89 €/mes), cuotas de asistentes y automatizaciones.",
     paraCliente: "«La cuota incluye servidores, consumo de IA, copias de seguridad, actualizaciones y que lo vigilemos.»",
     flujo: ["Montaje (pago único)", "Cuota mensual", "Más clientes", "MRR crece"],
     relacionadas: ["capas"],

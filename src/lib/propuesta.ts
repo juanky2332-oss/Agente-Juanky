@@ -1,4 +1,4 @@
-// Propuesta comercial de «IndunexIA» en PDF (2 páginas). Sin red: solo datos -> bytes.
+// Propuesta comercial de «IndunexIA Gestión» en PDF (2 páginas). Sin red: solo datos -> bytes.
 // Tarifa vigente (oferta.json, web transformaconia.com/erp-industria/ y landing, desde 2026-10-25): tres planes
 // Básico 590 € + 59 €/mes, Profesional 690 € + 69 €/mes y Pro 990 € + 89 €/mes (precios de temporada hasta el 31/12/2026;
 // tarifa general 790 / 990 / 1.490 €). Puesta en marcha en un solo pago al empezar, 3 primeros meses de cuota gratis,
@@ -78,7 +78,7 @@ export function validarPeticion(b: Partial<PeticionPropuesta> | null | undefined
     .slice(0, 12)
     .map((m) => m.slice(0, 60));
   const notas = limpia(b?.notas).slice(0, 400);
-  if (/flownexion/i.test([cliente, notas, ...modulos].join(" "))) throw new ErrorPropuesta("La oferta es de IndunexIA: no se puede nombrar a otra marca en el documento.");
+  if (/flownexion/i.test([cliente, notas, ...modulos].join(" "))) throw new ErrorPropuesta("La oferta es de IndunexIA Gestión: no se puede nombrar a otra marca en el documento.");
   return { cliente, plan: leerPlan(b?.plan), usuariosExtra: n, modulos, notas };
 }
 
@@ -182,7 +182,7 @@ const PASOS = [
 /** Genera el PDF de 2 páginas. `hoy` se puede fijar para pruebas. */
 export async function generarPropuestaPdf(d: DatosPropuesta, hoy = new Date()): Promise<{ pdf: Uint8Array; archivo: string; paginas: number }> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`Propuesta IndunexIA - ${d.cliente}`);
+  doc.setTitle(`Propuesta IndunexIA Gestión - ${d.cliente}`);
   doc.setAuthor("Transforma con IA");
   doc.setSubject("Propuesta comercial");
   doc.setCreator("Transforma con IA");
