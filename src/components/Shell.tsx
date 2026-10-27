@@ -13,7 +13,7 @@ const NAV = [
   { href: "/chat", txt: "Asistente", ico: "✦" },
   { href: "/contactos", txt: "Contactos", ico: "☏" },
   { href: "/gastro", txt: "Gastro", ico: "🍷" },
-  { href: "/bebe", txt: "Bebé", ico: "🍼" },
+  { href: "/estudio", txt: "Estudio", ico: "📚" },
   { href: "/correo", txt: "Correo", ico: "✉" },
   { href: "/sistema", txt: "Sistema", ico: "⚙" },
 ];

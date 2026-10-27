@@ -19,7 +19,6 @@ export const GID = {
   Cobros: 1617010252,
   Programados: 728492008,
   "Filtros correo": 1270686954,
-  "Ayudas bebé": 164445042,
   Borradores: 276141440,
 } as const;
 
