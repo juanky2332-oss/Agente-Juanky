@@ -13,6 +13,7 @@ export interface Leccion {
   paraCliente: string; // cómo decirlo en una reunión
   flujo: string[]; // pasos para la vista gráfica
   relacionadas: string[]; // ids
+  fuentes?: string[]; // enlaces de donde sale (lecciones creadas con «Ampliar»)
 }
 
 export const TEMAS = ["Cómo piensa la IA", "Buscar con IA (RAG)", "Agentes", "Cómo están hechas tus apps", "Seguridad y ley", "Negocio"] as const;

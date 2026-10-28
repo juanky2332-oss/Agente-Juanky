@@ -3,32 +3,63 @@ import { n8n, ErrorN8n, escHtml } from "./n8n";
 import { leerTabla, aObjeto, anadirFila, modificarPorId, escribirCelda, filaPorId, type Tabla } from "./sheets";
 import { hoyISO } from "./parse";
 import { TEMARIO, leccion, type Leccion } from "./estudioTemario";
+import { MATERIAS, materia, materiaDe, type IdMateria, type Materia } from "./estudioMaterias";
 
-// Bloque Estudio: temario técnico, progreso («lo entiendo / no»), explicación más sencilla con ejemplos
-// y novedades de IA. Todo a petición (regla de Juanky: nada diario automático).
+// Bloque Estudio: materias (técnica, compras, inglés, refranes), progreso («lo entiendo / no»), explicación más
+// sencilla con ejemplos, resumen de lo visto, corrector de inglés y novedades de IA. Todo a petición (nada diario).
+// Sin repaso espaciado (lo pidió el 28-10-2026): lo entendido no vuelve a salir; queda en «Lo visto».
 // Progreso en la pestaña «Estudio» (se crea sola la primera vez). Fila «_NOVEDADES» = caché del resumen.
 
 const HOJA = "Estudio";
 const CAB = ["ID", "TITULO", "ESTADO", "VECES", "ULTIMA", "EXPLICACION", "DUDA"];
 const APP = "https://agente-juanky.vercel.app/estudio";
-// Repaso espaciado: días que tienen que pasar para volver a preguntar algo ya entendido, según las veces.
-const ESPERA = [2, 5, 12, 30, 60];
 
 export type EstadoLeccion = "nueva" | "entendida" | "repasar";
 export interface Explicacion { explicacion: string; ejemplo: string; enTusApps: string; pregunta: string; fecha: string }
 export interface Progreso { id: string; estado: EstadoLeccion; veces: number; ultima: string; explicacion: Explicacion | null; duda: string }
 export interface Noticia { titulo: string; resumen: string; importa: string; termino: string; enlace: string; fuente: string }
 export interface Novedades { fecha: string; noticias: Noticia[] }
+export interface Correccion { correcta: string; natural: string; errores: { mal: string; bien: string; porque: string }[]; nota: string }
 
-async function tabla(): Promise<Tabla> {
+// Lecciones creadas con «Ampliar» (búsqueda web + IA): una fila por lección, la lección entera en JSON.
+const HOJA_EXTRA = "Estudio extra";
+const CAB_EXTRA = ["ID", "MATERIA", "FECHA", "PETICION", "LECCION"];
+
+/** Lee una pestaña y, si aún no existe, la crea con su cabecera. */
+async function tablaCreando(hoja: string, cab: string[]): Promise<Tabla> {
   try {
-    return await leerTabla(HOJA);
+    return await leerTabla(hoja);
   } catch (e) {
     if (!/Unable to parse range|no encontr|not found/i.test(String((e as Error).message))) throw e;
-    await n8n({ op: "sheets", method: "POST", path: ":batchUpdate", body: { requests: [{ addSheet: { properties: { title: HOJA, gridProperties: { rowCount: 200, columnCount: CAB.length } } } }] } });
-    await n8n({ op: "sheets", method: "PUT", path: `/values/${encodeURIComponent(`'${HOJA}'!A1:G1`)}?valueInputOption=RAW`, body: { values: [CAB] } });
-    return leerTabla(HOJA);
+    await n8n({ op: "sheets", method: "POST", path: ":batchUpdate", body: { requests: [{ addSheet: { properties: { title: hoja, gridProperties: { rowCount: 200, columnCount: cab.length } } } }] } });
+    await n8n({ op: "sheets", method: "PUT", path: `/values/${encodeURIComponent(`'${hoja}'!A1:${String.fromCharCode(64 + cab.length)}1`)}?valueInputOption=RAW`, body: { values: [cab] } });
+    return leerTabla(hoja);
   }
+}
+const tabla = () => tablaCreando(HOJA, CAB);
+
+/** Las materias con sus lecciones fijas + las creadas con «Ampliar» (al final, con sus temas nuevos). */
+async function materiasCompletas(): Promise<Materia[]> {
+  const t = await tablaCreando(HOJA_EXTRA, CAB_EXTRA);
+  const extra = new Map<string, Leccion[]>();
+  for (const f of t.filas) {
+    const o = aObjeto(t, f.celdas);
+    const l = jsonSeguro<Leccion>(o.LECCION);
+    if (!o.ID || !l?.titulo || !MATERIAS.some((m) => m.id === o.MATERIA)) continue;
+    extra.set(o.MATERIA, [...(extra.get(o.MATERIA) || []), { ...l, id: o.ID, flujo: l.flujo || [], relacionadas: l.relacionadas || [] }]);
+  }
+  return MATERIAS.map((m) => {
+    const mas = extra.get(m.id) || [];
+    return mas.length ? { ...m, lecciones: [...m.lecciones, ...mas], temas: [...m.temas, ...[...new Set(mas.map((l) => l.tema))].filter((x) => !m.temas.includes(x))] } : m;
+  });
+}
+
+function buscarEn(ms: Materia[], id: string) {
+  for (const m of ms) {
+    const l = m.lecciones.find((x) => x.id === id);
+    if (l) return { l, m };
+  }
+  return null;
 }
 
 const jsonSeguro = <T>(s: string): T | null => {
@@ -51,46 +82,45 @@ function progresoDe(t: Tabla): Map<string, Progreso> {
 }
 
 const vacio = (id: string): Progreso => ({ id, estado: "nueva", veces: 0, ultima: "", explicacion: null, duda: "" });
-const dias = (iso: string) => (iso ? Math.floor((Date.parse(hoyISO()) - Date.parse(iso)) / 86400000) : 9999);
 
-/** Siguiente lección: primero lo marcado «no lo entiendo», luego lo nuevo en orden, luego repaso espaciado. */
-export function siguiente(prog: Map<string, Progreso>): Leccion | null {
+/** Siguiente lección de una materia: primero lo marcado «no lo entiendo», luego lo nuevo en orden. Lo entendido ya no vuelve. */
+export function siguiente(prog: Map<string, Progreso>, lista: Leccion[] = TEMARIO): Leccion | null {
   const p = (l: Leccion) => prog.get(l.id) || vacio(l.id);
-  const repasar = TEMARIO.filter((l) => p(l).estado === "repasar").sort((a, b) => p(a).ultima.localeCompare(p(b).ultima));
-  if (repasar.length) return repasar[0];
-  const nueva = TEMARIO.find((l) => p(l).estado === "nueva");
-  if (nueva) return nueva;
-  const toca = TEMARIO.filter((l) => dias(p(l).ultima) >= ESPERA[Math.min(p(l).veces, ESPERA.length) - 1]).sort((a, b) => p(a).ultima.localeCompare(p(b).ultima));
-  return toca[0] || null;
+  const repasar = lista.filter((l) => p(l).estado === "repasar").sort((a, b) => p(a).ultima.localeCompare(p(b).ultima));
+  return repasar[0] || lista.find((l) => p(l).estado === "nueva") || null;
 }
 
-export async function cargarEstudio() {
-  const prog = progresoDe(await tabla());
-  const lista = TEMARIO.map((l) => ({ ...l, progreso: prog.get(l.id) || vacio(l.id) }));
+export async function cargarEstudio(idMateria?: string) {
+  const [ms, t] = await Promise.all([materiasCompletas(), tabla()]);
+  const m = ms.find((x) => x.id === materia(idMateria).id)!;
+  const prog = progresoDe(t);
+  const lista = m.lecciones.map((l) => ({ ...l, progreso: prog.get(l.id) || vacio(l.id) }));
   const cuenta = { entendidas: lista.filter((l) => l.progreso.estado === "entendida").length, repasar: lista.filter((l) => l.progreso.estado === "repasar").length, total: lista.length };
-  return { lecciones: lista, cuenta, siguiente: siguiente(prog)?.id || null };
+  // Cuánto lleva en cada materia, para las pestañas de arriba
+  const materias = ms.map((x) => ({ id: x.id, nombre: x.nombre, emoji: x.emoji, vistas: x.lecciones.filter((l) => prog.get(l.id)?.estado === "entendida").length, total: x.lecciones.length }));
+  return { materia: m.id, temas: m.temas, lecciones: lista, cuenta, siguiente: siguiente(prog, m.lecciones)?.id || null, materias };
 }
 
-async function guardar(id: string, cambios: Record<string, unknown>) {
+async function guardar(id: string, titulo: string, cambios: Record<string, unknown>) {
   const t = await tabla();
-  const l = leccion(id);
   if (filaPorId(t, id)) return modificarPorId(HOJA, id, cambios);
-  return anadirFila(HOJA, { ID: id, TITULO: l?.titulo || id, ESTADO: "nueva", VECES: 0, ...cambios }, t.cabecera);
+  return anadirFila(HOJA, { ID: id, TITULO: titulo, ESTADO: "nueva", VECES: 0, ...cambios }, t.cabecera);
 }
 
 export async function marcar(id: string, entendida: boolean) {
-  const l = leccion(id);
-  if (!l) throw new ErrorN8n(`No hay ninguna lección «${id}»`, 404);
+  const x = buscarEn(await materiasCompletas(), id);
+  if (!x) throw new ErrorN8n(`No hay ninguna lección «${id}»`, 404);
   const prog = progresoDe(await tabla()).get(id) || vacio(id);
-  // Entender suma una vez al repaso espaciado; no entender lo deja para repasar el primero.
-  await guardar(id, { ESTADO: entendida ? "entendida" : "repasar", VECES: entendida ? prog.veces + 1 : prog.veces, ULTIMA: hoyISO() });
+  // Entendida = vista para siempre (sin repaso); no entendida = sale la primera la próxima vez.
+  await guardar(id, x.l.titulo, { ESTADO: entendida ? "entendida" : "repasar", VECES: entendida ? prog.veces + 1 : prog.veces, ULTIMA: hoyISO() });
   return { id, estado: entendida ? "entendida" : "repasar" };
 }
 
-/** «No lo entiendo»: otra explicación más sencilla, con ejemplo cotidiano y uno de sus proyectos. Se guarda. */
+/** «No lo entiendo»: otra explicación más sencilla, con ejemplo cotidiano y otro de su trabajo o sus apps. Se guarda. */
 export async function explicarMejor(id: string, duda = "") {
-  const l = leccion(id);
-  if (!l) throw new ErrorN8n(`No hay ninguna lección «${id}»`, 404);
+  const x = buscarEn(await materiasCompletas(), id);
+  if (!x) throw new ErrorN8n(`No hay ninguna lección «${id}»`, 404);
+  const { l, m } = x;
   const prev = progresoDe(await tabla()).get(id);
   const r = await n8n<{ choices?: { message?: { content?: string } }[] }>(
     {
@@ -103,13 +133,13 @@ export async function explicarMejor(id: string, duda = "") {
         messages: [
           {
             role: "system",
-            content: `Eres el profesor particular de Juanky: consultor y desarrollador de IA que construye muy bien (Next.js, Supabase/Neon, n8n, OpenAI, bots de Telegram, un ERP para talleres, un chatbot para una tienda online técnica) pero olvida la teoría y los términos. Explica en español de España, como a un amigo listo, frases cortas, cero jerga sin explicar.
-Devuelve SOLO JSON: {"explicacion": "3-5 frases, más sencilla que la anterior y desde otro ángulo", "ejemplo": "un ejemplo de la vida diaria (taller, bar, casa) en 2-3 frases", "enTusApps": "dónde aparece en lo que él ya ha construido, en 1-2 frases", "pregunta": "una pregunta corta para que compruebe si lo ha entendido"}.
-No nombres empresas cliente. No inventes datos técnicos.`,
+            content: `Eres el profesor particular de Juanky (materia: ${m.nombre}). ${m.profesor} Explica en español de España, como a un amigo listo, frases cortas, cero jerga sin explicar.
+Devuelve SOLO JSON: {"explicacion": "3-5 frases, más sencilla que la anterior y desde otro ángulo", "ejemplo": "un ejemplo de la vida diaria o del trabajo en 2-3 frases", "enTusApps": "${m.et.enTusApps.toLowerCase()}, en 1-2 frases", "pregunta": "una pregunta corta para que compruebe si lo ha entendido"}.
+No nombres empresas cliente. No inventes datos, cifras ni normas.`,
           },
           {
             role: "user",
-            content: `Lección: ${l.titulo}\nDefinición: ${l.frase}\nExplicación que ya leyó: ${l.explicacion}\nAnalogía que ya leyó: ${l.analogia}\nEn sus apps: ${l.enTusApps}${prev?.explicacion ? `\nOtra explicación que tampoco le sirvió: ${prev.explicacion.explicacion}` : ""}\nLo que no entiende: ${duda.trim() || "(no lo ha dicho: no lo entiende en general)"}`,
+            content: `Lección: ${l.titulo}\n${m.et.frase}: ${l.frase}\nExplicación que ya leyó: ${l.explicacion}\n${m.et.analogia}: ${l.analogia}\n${m.et.enTusApps}: ${l.enTusApps}${prev?.explicacion ? `\nOtra explicación que tampoco le sirvió: ${prev.explicacion.explicacion}` : ""}\nLo que no entiende: ${duda.trim() || "(no lo ha dicho: no lo entiende en general)"}`,
           },
         ],
       },
@@ -119,8 +149,152 @@ No nombres empresas cliente. No inventes datos técnicos.`,
   const d = jsonSeguro<Partial<Explicacion>>(r.choices?.[0]?.message?.content || "");
   if (!d?.explicacion) throw new ErrorN8n("La IA no devolvió una explicación. Prueba otra vez.", 502);
   const ex: Explicacion = { explicacion: String(d.explicacion), ejemplo: String(d.ejemplo || ""), enTusApps: String(d.enTusApps || ""), pregunta: String(d.pregunta || ""), fecha: hoyISO() };
-  await guardar(id, { ESTADO: "repasar", ULTIMA: hoyISO(), EXPLICACION: JSON.stringify(ex), DUDA: duda.slice(0, 500) });
+  await guardar(id, l.titulo, { ESTADO: "repasar", ULTIMA: hoyISO(), EXPLICACION: JSON.stringify(ex), DUDA: duda.slice(0, 500) });
   return ex;
+}
+
+/** Resumen de lo visto en una materia: lo esencial de cada lección entendida, en el orden del temario. */
+export async function resumen(idMateria?: string) {
+  const m = (await materiasCompletas()).find((x) => x.id === materia(idMateria).id)!;
+  const prog = progresoDe(await tabla());
+  return {
+    materia: m.id,
+    lecciones: m.lecciones
+      .filter((l) => prog.get(l.id)?.estado === "entendida")
+      .map((l) => ({ id: l.id, tema: l.tema, titulo: l.titulo, frase: l.frase, clave: l.paraCliente, ultima: prog.get(l.id)?.ultima || "" })),
+  };
+}
+
+// ───────── Ampliar: lecciones nuevas investigadas en internet ─────────
+// Paso 1: gpt-5-search-api busca en fuentes fiables y devuelve notas con enlaces.
+// Paso 2: gpt-5.4-mini monta las lecciones con el formato de la materia usando SOLO esas notas.
+// Los enlaces se quedan solo si aparecen en las notas de la búsqueda (la IA no puede inventarse fuentes).
+const PISTAS: Record<IdMateria, string> = {
+  tecnica: "IA aplicada, desarrollo de software con IA, agentes, RAG, bases de datos, seguridad. Fuentes: documentación oficial (OpenAI, Anthropic, Google), blogs técnicos reconocidos.",
+  compras: "Compras industriales y gestión de proveedores en España: negociación, contratos, logística, normativa. Fuentes: CIPS, ISM, Harvard (PON), escuelas de negocio, BOE para normas españolas.",
+  ingles: "Aprender inglés siendo adulto hispanohablante y el inglés de negocios para compras (correos, llamadas, negociación). Fuentes: British Council, Cambridge English, universidades, lingüistas reconocidos.",
+  refranes: "Refranes españoles reales y su significado; si piden de Murcia, refranes y dichos recogidos en la Región de Murcia (huerta, Campo de Cartagena, Lorca, Noroeste). Fuentes: Refranero multilingüe del Centro Virtual Cervantes, regmurcia.com, revista Cangilón, Universidad de Murcia, prensa regional.",
+};
+
+export async function ampliar(idMateria: string, peticion: string) {
+  const ms = await materiasCompletas();
+  const m = ms.find((x) => x.id === materia(idMateria).id)!;
+  const pide = peticion.trim().slice(0, 300) || (m.id === "refranes" ? "más refranes útiles para compras y el trabajo" : "un nivel más avanzado que lo que ya tengo");
+  const yaTiene = m.lecciones.map((l) => l.titulo).join(" | ");
+
+  const busqueda = await n8n<{ choices?: { message?: { content?: string } }[] }>(
+    {
+      op: "openai",
+      body: {
+        model: "gpt-5-search-api",
+        web_search_options: { search_context_size: "high" },
+        messages: [
+          {
+            role: "user",
+            content: `Investiga en internet para preparar lecciones de estudio en español (materia: ${m.nombre}). Lo que pide el alumno: «${pide}».
+Contexto del alumno: ${m.profesor}
+Ámbito y fuentes preferidas: ${PISTAS[m.id]}
+Ya tiene estas lecciones (no repitas sus temas): ${yaTiene}
+Devuelve notas detalladas para 4 lecciones nuevas, cada una con los datos concretos que encuentres y la URL exacta de cada fuente. Solo información que esté en las fuentes; si algo no lo encuentras, no lo pongas.`,
+          },
+        ],
+      },
+    },
+    100000,
+  );
+  const notas = busqueda.choices?.[0]?.message?.content || "";
+  if (notas.length < 200) throw new ErrorN8n("La búsqueda no ha encontrado suficiente información. Prueba a pedirlo de otra forma.", 502);
+  const urlsNotas = new Set((notas.match(/https?:\/\/[^\s)\]»"<>]+/g) || []).map((u) => u.replace(/[.,;]+$/, "").replace(/[?&]utm_source=openai$/, "")));
+
+  const r = await n8n<{ choices?: { message?: { content?: string } }[] }>(
+    {
+      op: "openai",
+      body: {
+        model: "gpt-5.4-mini",
+        reasoning_effort: "low",
+        max_completion_tokens: 6000,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `Preparas lecciones de estudio para Juanky (materia: ${m.nombre}). ${m.profesor}
+Escribe en español de España, claro y útil, que merezca la pena leerlo: nada de relleno ni frases genéricas. Usa SOLO la información de las notas de investigación.
+Cada lección tiene estos campos (lo que significa cada uno en esta materia va entre paréntesis):
+- "titulo" (${m.id === "refranes" ? "el refrán literal" : "título corto"})
+- "frase" (${m.et.frase}, una línea)
+- "explicacion" (${m.et.explicacion}, 3-5 frases con datos concretos)
+- "analogia" (${m.et.analogia})
+- "enTusApps" (${m.et.enTusApps})
+- "paraCliente" (${m.et.paraCliente}${m.id === "ingles" ? "; frases en inglés con su traducción, una por línea con \\n" : ""})
+- "flujo" (${m.et.flujo}: 3-5 pasos cortos)
+- "fuentes" (las URL de las notas de donde sale)
+Devuelve SOLO JSON {"tema": "nombre corto para agrupar estas lecciones (p. ej. «Nivel avanzado» o «Refranes de Murcia»)", "lecciones": [3 o 4 lecciones]}.
+No repitas lo que ya tiene: ${yaTiene}`,
+          },
+          { role: "user", content: `Petición: ${pide}\n\nNotas de investigación:\n${notas}` },
+        ],
+      },
+    },
+    70000,
+  );
+  const d = jsonSeguro<{ tema?: string; lecciones?: Partial<Leccion>[] }>(r.choices?.[0]?.message?.content || "");
+  const tema = String(d?.tema || "Ampliación").slice(0, 40);
+  const base = `x-${m.id.slice(0, 3)}-${Date.now().toString(36)}`;
+  const nuevas: Leccion[] = (d?.lecciones || [])
+    .filter((l) => l?.titulo && l.frase && l.explicacion && !m.lecciones.some((x) => x.titulo.toLowerCase() === String(l.titulo).toLowerCase()))
+    .slice(0, 4)
+    .map((l, i) => ({
+      id: `${base}-${i + 1}`,
+      tema,
+      titulo: String(l.titulo).slice(0, 120),
+      frase: String(l.frase),
+      explicacion: String(l.explicacion),
+      analogia: String(l.analogia || ""),
+      enTusApps: String(l.enTusApps || ""),
+      paraCliente: String(l.paraCliente || ""),
+      flujo: (Array.isArray(l.flujo) ? l.flujo : []).map(String).slice(0, 6),
+      relacionadas: [],
+      fuentes: (Array.isArray(l.fuentes) ? l.fuentes : []).map((u) => String(u).replace(/[?&]utm_source=openai$/, "")).filter((u) => urlsNotas.has(u)).slice(0, 4),
+    }));
+  if (!nuevas.length) throw new ErrorN8n("La IA no ha preparado lecciones nuevas. Prueba otra vez o pídelo de otra forma.", 502);
+  const t = await tablaCreando(HOJA_EXTRA, CAB_EXTRA);
+  for (const l of nuevas) await anadirFila(HOJA_EXTRA, { ID: l.id, MATERIA: m.id, FECHA: hoyISO(), PETICION: pide, LECCION: JSON.stringify(l) }, t.cabecera);
+  return { materia: m.id, tema, lecciones: nuevas };
+}
+
+/** Corrector de inglés: corrige una frase suya, explica los fallos en español y propone una versión natural. No se guarda. */
+export async function corregirIngles(texto: string): Promise<Correccion> {
+  const t = texto.trim().slice(0, 1500);
+  if (!t) throw new ErrorN8n("Escribe la frase en inglés que quieres corregir.", 400);
+  const r = await n8n<{ choices?: { message?: { content?: string } }[] }>(
+    {
+      op: "openai",
+      body: {
+        model: "gpt-5.4-mini",
+        reasoning_effort: "low",
+        max_completion_tokens: 1200,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `Eres profesor de inglés de un español que trabaja en compras industriales (nivel básico-intermedio). Corrige lo que escribe.
+Devuelve SOLO JSON: {"correcta": "su texto corregido, cambiando lo mínimo", "natural": "cómo lo diría un nativo en un correo de trabajo", "errores": [{"mal": "trozo con error", "bien": "corregido", "porque": "explicación corta en español"}], "nota": "un ánimo o consejo de una frase, en español"}.
+Si no hay errores, "errores" vacío y dilo en "nota". Si escribe en español, tradúcelo en "correcta" y "natural" y explícalo en "nota".`,
+          },
+          { role: "user", content: t },
+        ],
+      },
+    },
+    60000,
+  );
+  const d = jsonSeguro<Partial<Correccion>>(r.choices?.[0]?.message?.content || "");
+  if (!d?.correcta) throw new ErrorN8n("La IA no devolvió la corrección. Prueba otra vez.", 502);
+  return {
+    correcta: String(d.correcta),
+    natural: String(d.natural || ""),
+    errores: (Array.isArray(d.errores) ? d.errores : []).slice(0, 10).map((e) => ({ mal: String(e?.mal || ""), bien: String(e?.bien || ""), porque: String(e?.porque || "") })),
+    nota: String(d.nota || ""),
+  };
 }
 
 // ───────── Novedades de IA (RSS gratis + un resumen con IA, caché de 12 h) ─────────
@@ -205,48 +379,119 @@ Usa solo lo que dice cada titular y su texto: no inventes cifras ni fechas. Tema
 }
 
 // ───────── Telegram (texto HTML) ─────────
-export function tarjetaHtml(l: Leccion, p?: Progreso) {
+const dominio = (u: string) => {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return u.slice(0, 40);
+  }
+};
+
+export function tarjetaHtml(l: Leccion, p?: Progreso, m: Materia = materiaDe(l.id)) {
   const ex = p?.explicacion;
   return [
-    `📚 <b>${escHtml(l.titulo)}</b>  <i>(${escHtml(l.tema)})</i>`,
-    `\n<b>En una frase:</b> ${escHtml(l.frase)}`,
+    `${m.emoji} <b>${escHtml(l.titulo)}</b>  <i>(${escHtml(l.tema)})</i>`,
+    `\n<b>${escHtml(m.et.frase)}:</b> ${escHtml(l.frase)}`,
     `\n${escHtml(l.explicacion)}`,
-    `\n🧩 <b>Como si…</b> ${escHtml(l.analogia)}`,
-    `🛠 <b>En tus apps:</b> ${escHtml(l.enTusApps)}`,
-    `💬 <b>Para un cliente:</b> ${escHtml(l.paraCliente)}`,
+    `\n🧩 <b>${escHtml(m.et.analogia)}:</b> ${escHtml(l.analogia)}`,
+    `🛠 <b>${escHtml(m.et.enTusApps)}:</b> ${escHtml(l.enTusApps)}`,
+    `💬 <b>${escHtml(m.et.paraCliente)}:</b> ${escHtml(l.paraCliente)}`,
     `\n➡️ ${l.flujo.map(escHtml).join(" → ")}`,
+    l.fuentes?.length ? `📎 Fuentes: ${l.fuentes.map((u) => `<a href="${escHtml(u)}">${escHtml(dominio(u))}</a>`).join(" · ")}` : "",
     ex ? `\n🔁 <b>Tu explicación sencilla:</b> ${escHtml(ex.explicacion)}\n<b>Ejemplo:</b> ${escHtml(ex.ejemplo)}` : "",
-    `\n✅ <code>/estudio ok ${l.id}</code> · ❓ <code>/estudio no ${l.id} lo que no entiendes</code>`,
-    `📊 Gráfico y progreso: ${APP}?l=${l.id}`,
+    `\n✅ <code>/${m.comando} ok ${l.id}</code> · ❓ <code>/${m.comando} no ${l.id} lo que no entiendes</code>`,
+    `📊 Gráfico y progreso: ${APP}?m=${m.id}&l=${l.id}`,
   ].filter(Boolean).join("\n");
 }
 
-/** Comandos de Telegram: /estudio [tema|ok id|no id duda|lista] y /novedades [ya]. */
+/** Une líneas sin pasar del límite de Telegram (4096) y sin cortar ninguna a medias (rompería el HTML). */
+function cortar(lineas: string[], pie = "") {
+  let s = "";
+  for (const l of lineas) {
+    if (s.length + l.length + pie.length + 40 > 4000) return `${s}\n…${pie}`;
+    s += (s ? "\n" : "") + l;
+  }
+  return s + pie;
+}
+
+const COMANDOS: Record<string, IdMateria> = {
+  estudio: "tecnica", estudiar: "tecnica", aprender: "tecnica", tecnica: "tecnica", "técnica": "tecnica", ia: "tecnica",
+  compras: "compras", compra: "compras",
+  ingles: "ingles", "inglés": "ingles", english: "ingles",
+  refranes: "refranes", refran: "refranes", "refrán": "refranes",
+};
+
+/** Comandos de Telegram: /estudio /compras /ingles /refranes [tema|ok id|no id duda|lista|visto], /ingles corrige …, /novedades [ya]. */
 export async function deTexto(texto: string): Promise<string> {
-  const t = texto.trim().replace(/^\/(estudio|estudiar|aprender)\b/i, "").trim();
-  if (/^\/?(novedades|noticias)\b/i.test(texto.trim())) {
-    const n = await novedades(/\b(ya|nuevas|forzar)\b/i.test(texto));
+  const entrada = texto.trim();
+  if (/^\/?(novedades|noticias)\b/i.test(entrada)) {
+    const n = await novedades(/\b(ya|nuevas|forzar)\b/i.test(entrada));
     return [`🗞 <b>Novedades de IA</b> (${n.fecha})`, ...n.noticias.map((x, i) => `\n<b>${i + 1}. ${escHtml(x.titulo)}</b>\n${escHtml(x.resumen)}\n👉 <i>${escHtml(x.importa)}</i>${x.termino ? ` · <code>/estudio ${x.termino}</code>` : ""}\n<a href="${escHtml(x.enlace)}">${escHtml(x.fuente)}</a>`), `\n${APP}?vista=novedades`].join("\n");
   }
-  const { lecciones, cuenta, siguiente: sig } = await cargarEstudio();
-  const m = t.match(/^(ok|si|sí|vale|entendido|no)\s+(\S+)\s*([\s\S]*)$/i);
-  if (m) {
-    const id = m[2].toLowerCase();
-    if (!leccion(id)) return `No conozco la lección «${escHtml(id)}». Escribe <code>/estudio lista</code>.`;
-    if (m[1].toLowerCase() !== "no") {
-      await marcar(id, true);
-      const otra = siguiente(new Map(lecciones.map((l) => [l.id, l.id === id ? { ...l.progreso, estado: "entendida" as const, veces: l.progreso.veces + 1, ultima: hoyISO() } : l.progreso])));
-      return `✅ Apuntado: entiendes <b>${escHtml(leccion(id)!.titulo)}</b>. Volverá en unos días para repasar.${otra ? `\nSiguiente: <code>/estudio ${otra.id}</code> (${escHtml(otra.titulo)})` : "\n🎉 Todo al día."}`;
+  const cm = entrada.match(/^\/([a-záéíóúñ]+)(?:@\S+)?\s*([\s\S]*)$/i);
+  let m = materia(COMANDOS[(cm?.[1] || "").toLowerCase()] || "tecnica");
+  let t = (cm ? cm[2] : entrada).trim();
+  // «/estudio compras …» también vale
+  const sub = t.match(/^(\S+)\s*([\s\S]*)$/);
+  const otra = sub ? COMANDOS[sub[1].toLowerCase()] : undefined;
+  if (m.id === "tecnica" && otra && otra !== "tecnica") {
+    m = materia(otra);
+    t = sub![2].trim();
+  }
+
+  if (m.id === "ingles") {
+    const c = t.match(/^(corrige|corregir|corrígeme|corrigeme|check)\s+([\s\S]+)$/i);
+    if (c) {
+      const r = await corregirIngles(c[2]);
+      return [
+        `✍️ <b>Tu frase corregida</b>\n${escHtml(r.correcta)}`,
+        r.natural ? `\n🗣 <b>Más natural:</b> ${escHtml(r.natural)}` : "",
+        r.errores.length ? `\n<b>Fallos:</b>\n${r.errores.map((e) => `• <s>${escHtml(e.mal)}</s> → <b>${escHtml(e.bien)}</b>: ${escHtml(e.porque)}`).join("\n")}` : "",
+        r.nota ? `\n💡 ${escHtml(r.nota)}` : "",
+      ].filter(Boolean).join("\n");
     }
-    const ex = await explicarMejor(id, m[3]);
-    return `🔁 <b>${escHtml(leccion(id)!.titulo)}</b>, de otra forma:\n\n${escHtml(ex.explicacion)}\n\n🏠 <b>Ejemplo:</b> ${escHtml(ex.ejemplo)}\n🛠 <b>En tus apps:</b> ${escHtml(ex.enTusApps)}\n\n❔ ${escHtml(ex.pregunta)}\n\n✅ <code>/estudio ok ${id}</code> · ❓ <code>/estudio no ${id} …</code>`;
+  }
+
+  if (/^(visto|lo visto|resumen)$/i.test(t)) {
+    const r = await resumen(m.id);
+    if (!r.lecciones.length) return `${m.emoji} Aún no has marcado nada como entendido en <b>${escHtml(m.nombre)}</b>. Empieza con <code>/${m.comando}</code>.`;
+    return cortar([`${m.emoji} <b>Lo visto en ${escHtml(m.nombre)}</b> (${r.lecciones.length})`, ...r.lecciones.map((l) => `\n<b>${escHtml(l.titulo)}</b>\n${escHtml(l.frase)}`)], `\n\nCompleto en ${APP}?m=${m.id}&vista=visto`);
+  }
+
+  // «/ingles más algo más difícil», «/refranes más de Murcia», «/compras amplia contratos marco»
+  const mas = t.match(/^(m[aá]s|amplia|ampliar|añade|nuevas?)\b\s*([\s\S]*)$/i);
+  if (mas) {
+    const r = await ampliar(m.id, mas[2]);
+    return cortar([
+      `${m.emoji} <b>${r.lecciones.length} lecciones nuevas de ${escHtml(m.nombre)}</b> · <i>${escHtml(r.tema)}</i> (buscadas en internet)`,
+      ...r.lecciones.map((l) => `\n<b>${escHtml(l.titulo)}</b>\n${escHtml(l.frase)}\n👉 <code>/${m.comando} ${l.id}</code>`),
+      `\n${APP}?m=${m.id}`,
+    ]);
+  }
+
+  const { lecciones, cuenta, siguiente: sig } = await cargarEstudio(m.id);
+  const ok = t.match(/^(ok|si|sí|vale|entendido|no)\s+(\S+)\s*([\s\S]*)$/i);
+  if (ok) {
+    const id = ok[2].toLowerCase();
+    const ms = await materiasCompletas();
+    const x = buscarEn(ms, id);
+    if (!x) return `No conozco la lección «${escHtml(id)}». Escribe <code>/${m.comando} lista</code>.`;
+    const mm = x.m;
+    if (ok[1].toLowerCase() !== "no") {
+      await marcar(id, true);
+      const prog = mm.id === m.id ? lecciones.map((l) => [l.id, l.id === id ? { ...l.progreso, estado: "entendida" as const } : l.progreso] as const) : (await cargarEstudio(mm.id)).lecciones.map((l) => [l.id, l.progreso] as const);
+      const despues = siguiente(new Map(prog), mm.lecciones);
+      return `✅ Apuntado: <b>${escHtml(x.l.titulo)}</b> queda en lo visto (<code>/${mm.comando} visto</code>).${despues ? `\nSiguiente: <code>/${mm.comando} ${despues.id}</code> (${escHtml(despues.titulo)})` : `\n🎉 Has terminado esta materia. ¿Más? <code>/${mm.comando} más lo que quieras</code>`}`;
+    }
+    const ex = await explicarMejor(id, ok[3]);
+    return `🔁 <b>${escHtml(x.l.titulo)}</b>, de otra forma:\n\n${escHtml(ex.explicacion)}\n\n🏠 <b>Ejemplo:</b> ${escHtml(ex.ejemplo)}\n🛠 <b>${escHtml(mm.et.enTusApps)}:</b> ${escHtml(ex.enTusApps)}\n\n❔ ${escHtml(ex.pregunta)}\n\n✅ <code>/${mm.comando} ok ${id}</code> · ❓ <code>/${mm.comando} no ${id} …</code>`;
   }
   if (/^(lista|temario|indice|índice)$/i.test(t)) {
     const ico = { entendida: "✅", repasar: "🔁", nueva: "▫️" } as const;
-    return [`📚 <b>Temario</b> · ${cuenta.entendidas}/${cuenta.total} entendidas · ${cuenta.repasar} por repasar`, ...lecciones.map((l) => `${ico[l.progreso.estado]} <code>/estudio ${l.id}</code> ${escHtml(l.titulo)}`)].join("\n");
+    return cortar([`${m.emoji} <b>${escHtml(m.nombre)}</b> · ${cuenta.entendidas}/${cuenta.total} vistas${cuenta.repasar ? ` · ${cuenta.repasar} sin entender` : ""}`, ...lecciones.map((l) => `${ico[l.progreso.estado]} <code>/${m.comando} ${l.id}</code> ${escHtml(l.titulo)}`)], `\nCompleto: ${APP}?m=${m.id}&vista=temario`);
   }
   const busca = t.toLowerCase();
   const l = busca ? lecciones.find((x) => x.id === busca) || lecciones.find((x) => x.titulo.toLowerCase().includes(busca)) : lecciones.find((x) => x.id === sig);
-  if (!l) return busca ? `No encuentro «${escHtml(t)}». Escribe <code>/estudio lista</code>.` : `🎉 Todo al día: ${cuenta.entendidas}/${cuenta.total} entendidas. Repasa cuando quieras con <code>/estudio lista</code> o mira <code>/novedades</code>.`;
-  return tarjetaHtml(l, l.progreso);
+  if (!l) return busca ? `No encuentro «${escHtml(t)}». Escribe <code>/${m.comando} lista</code>.` : `🎉 Has visto todo ${escHtml(m.nombre)}: ${cuenta.entendidas}/${cuenta.total}. Tienes el resumen con <code>/${m.comando} visto</code>.${m.id === "ingles" ? "\nY practica cuando quieras: <code>/ingles corrige tu frase</code>." : ""}`;
+  return tarjetaHtml(l, l.progreso, m);
 }

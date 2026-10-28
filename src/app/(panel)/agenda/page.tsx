@@ -19,6 +19,59 @@ function diasDe(e: Ev): string[] {
   return out;
 }
 
+const local = (iso: string) => new Date(iso).toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).replace(" ", "T").slice(0, 16);
+const menosUnDia = (d: string) => new Date(Date.parse(d + "T12:00:00Z") - 86400000).toISOString().slice(0, 10);
+
+/** Formulario para cambiar una cita: título, días, horas y lugar. */
+function Editar({ e, cerrar, guardado }: { e: Ev; cerrar: () => void; guardado: () => void }) {
+  const ini = e.todoElDia ? e.inicio.slice(0, 10) + "T00:00" : local(e.inicio);
+  const fin = e.todoElDia ? menosUnDia(e.fin.slice(0, 10)) + "T00:00" : local(e.fin);
+  const [f, setF] = useState({ titulo: e.titulo, fecha: ini.slice(0, 10), fechaFin: fin.slice(0, 10), hora: e.todoElDia ? "" : ini.slice(11), horaFin: e.todoElDia ? "" : fin.slice(11), todoElDia: e.todoElDia, lugar: e.lugar });
+  const [enviando, setEnviando] = useState(false);
+  const guardar = async (x: React.FormEvent) => {
+    x.preventDefault();
+    setEnviando(true);
+    try {
+      const todo = f.todoElDia || !f.hora;
+      await llamar("/api/agenda", "PATCH", {
+        id: e.id,
+        titulo: f.titulo,
+        todoElDia: todo,
+        inicio: todo ? f.fecha : `${f.fecha}T${f.hora}`,
+        fin: todo ? f.fechaFin || f.fecha : f.horaFin ? `${f.fechaFin || f.fecha}T${f.horaFin}` : undefined,
+        lugar: f.lugar,
+      });
+      avisar("Cita cambiada en Google Calendar");
+      guardado();
+    } catch (err) {
+      avisar((err as Error).message, "error");
+    } finally {
+      setEnviando(false);
+    }
+  };
+  return (
+    <form onSubmit={guardar} className="mt-2 grid gap-2 rounded-xl border border-acento/40 bg-card-2 p-3">
+      <Campo etiqueta="Título"><input required className={inputCls} value={f.titulo} onChange={(x) => setF({ ...f, titulo: x.target.value })} /></Campo>
+      <div className="grid grid-cols-2 gap-2">
+        <Campo etiqueta="Día"><input required type="date" className={inputCls} value={f.fecha} onChange={(x) => setF({ ...f, fecha: x.target.value, fechaFin: f.fechaFin < x.target.value ? x.target.value : f.fechaFin })} /></Campo>
+        <Campo etiqueta="Hasta el día"><input type="date" className={inputCls} value={f.fechaFin} min={f.fecha} onChange={(x) => setF({ ...f, fechaFin: x.target.value })} /></Campo>
+      </div>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.todoElDia} onChange={(x) => setF({ ...f, todoElDia: x.target.checked })} /> Todo el día</label>
+      {!f.todoElDia && (
+        <div className="grid grid-cols-2 gap-2">
+          <Campo etiqueta="Desde"><input type="time" className={inputCls} value={f.hora} onChange={(x) => setF({ ...f, hora: x.target.value })} /></Campo>
+          <Campo etiqueta="Hasta" ayuda="Vacío = 1 hora"><input type="time" className={inputCls} value={f.horaFin} onChange={(x) => setF({ ...f, horaFin: x.target.value })} /></Campo>
+        </div>
+      )}
+      <Campo etiqueta="Lugar"><input className={inputCls} value={f.lugar} onChange={(x) => setF({ ...f, lugar: x.target.value })} /></Campo>
+      <div className="flex gap-2">
+        <Boton type="submit" tipo="primario" disabled={enviando}>{enviando ? "Guardando…" : "Guardar cambios"}</Boton>
+        <Boton tipo="fantasma" onClick={cerrar}>Cancelar</Boton>
+      </div>
+    </form>
+  );
+}
+
 export default function Agenda() {
   const [rango, setRango] = useState(30);
   const { datos, error, cargando, recargar } = useApi<{ eventos: Ev[] }>(`/api/agenda?atras=1&adelante=${rango}`);
@@ -50,6 +103,25 @@ export default function Agenda() {
     } finally {
       setEnviando(false);
     }
+  };
+  const [editando, setEditando] = useState<string | null>(null);
+  const [moviendo, setMoviendo] = useState<string | null>(null);
+  /** «Pasar adelante»: misma hora, N días después (o al día elegido). */
+  const moverDias = async (e: Ev, dias: number) => {
+    if (!dias) return;
+    try {
+      await llamar("/api/agenda", "PATCH", { id: e.id, moverDias: dias });
+      avisar(`«${e.titulo}» movida ${dias > 0 ? "adelante" : "atrás"} ${Math.abs(dias)} día${Math.abs(dias) === 1 ? "" : "s"}`);
+      setMoviendo(null);
+      recargar();
+    } catch (x) {
+      avisar((x as Error).message, "error");
+    }
+  };
+  const moverA = (e: Ev, dia: string) => {
+    if (!dia) return;
+    const desde = e.todoElDia ? e.inicio.slice(0, 10) : local(e.inicio).slice(0, 10);
+    moverDias(e, Math.round((Date.parse(dia + "T12:00:00Z") - Date.parse(desde + "T12:00:00Z")) / 86400000));
   };
   const borrar = async (e: Ev) => {
     if (!confirm(`¿Borrar «${e.titulo}» de Google Calendar?`)) return;
@@ -85,18 +157,32 @@ export default function Agenda() {
                         const dias = diasDe(e);
                         const n = dias.indexOf(dia) + 1;
                         return (
-                          <li key={e.id + dia} className="group flex items-start justify-between gap-2 rounded-xl border border-borde p-3">
-                            <div className="min-w-0">
-                              <div className="text-xs text-txt-3">
-                                {e.todoElDia || dias.length > 1 ? `Todo el día${dias.length > 1 ? ` · día ${n} de ${dias.length}` : ""}` : `${new Date(e.inicio).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} – ${new Date(e.fin).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`}
+                          <li key={e.id + dia} className="group rounded-xl border border-borde p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-xs text-txt-3">
+                                  {e.todoElDia || dias.length > 1 ? `Todo el día${dias.length > 1 ? ` · día ${n} de ${dias.length}` : ""}` : `${new Date(e.inicio).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} – ${new Date(e.fin).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`}
+                                </div>
+                                <div className="font-medium">{RE_LIBRE.test(e.titulo) ? "🏖 " : ""}{e.titulo}</div>
+                                {e.lugar && <div className="text-xs text-txt-3">📍 {e.lugar}</div>}
                               </div>
-                              <div className="font-medium">{RE_LIBRE.test(e.titulo) ? "🏖 " : ""}{e.titulo}</div>
-                              {e.lugar && <div className="text-xs text-txt-3">📍 {e.lugar}</div>}
+                              <div className="flex shrink-0 gap-1 opacity-80 group-hover:opacity-100">
+                                <button onClick={() => { setMoviendo(moviendo === e.id + dia ? null : e.id + dia); setEditando(null); }} className="rounded-lg px-2 py-1 text-xs text-acento hover:bg-card-2" aria-label="Pasar adelante">⏩</button>
+                                <button onClick={() => { setEditando(editando === e.id + dia ? null : e.id + dia); setMoviendo(null); }} className="rounded-lg px-2 py-1 text-xs text-acento hover:bg-card-2" aria-label="Editar">✏️</button>
+                                {e.enlace && <a href={e.enlace} target="_blank" rel="noreferrer" className="rounded-lg px-2 py-1 text-xs text-acento hover:bg-card-2">abrir</a>}
+                                <button onClick={() => borrar(e)} className="rounded-lg px-2 py-1 text-xs text-txt-3 hover:bg-card-2" aria-label="Borrar">🗑</button>
+                              </div>
                             </div>
-                            <div className="flex shrink-0 gap-1 opacity-70 group-hover:opacity-100">
-                              {e.enlace && <a href={e.enlace} target="_blank" rel="noreferrer" className="rounded-lg px-2 py-1 text-xs text-acento hover:bg-card-2">abrir</a>}
-                              <button onClick={() => borrar(e)} className="rounded-lg px-2 py-1 text-xs text-txt-3 hover:bg-card-2" aria-label="Borrar">🗑</button>
-                            </div>
+                            {moviendo === e.id + dia && (
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl bg-card-2 p-2">
+                                <span className="text-xs text-txt-3">Pasar a (misma hora):</span>
+                                <Chip onClick={() => moverDias(e, 1)}>Mañana</Chip>
+                                <Chip onClick={() => moverDias(e, 2)}>+2 días</Chip>
+                                <Chip onClick={() => moverDias(e, 7)}>+1 semana</Chip>
+                                <input type="date" className={`${inputCls} w-auto py-1 text-xs`} aria-label="Otro día" onChange={(x) => moverA(e, x.target.value)} />
+                              </div>
+                            )}
+                            {editando === e.id + dia && <Editar e={e} cerrar={() => setEditando(null)} guardado={() => { setEditando(null); recargar(); }} />}
                           </li>
                         );
                       })}

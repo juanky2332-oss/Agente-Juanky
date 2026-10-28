@@ -1,16 +1,26 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useApi, Tarjeta, Boton, Cargando, FalloCarga, Titulo, Chip, llamar, avisar, inputCls, Kpi, Vacio } from "@/components/ui";
-import { TEMAS, type Leccion } from "@/lib/estudioTemario";
+import type { Leccion } from "@/lib/estudioTemario";
+import { MATERIAS, materia as materiaPor, type IdMateria, type Materia } from "@/lib/estudioMaterias";
 
 interface Explicacion { explicacion: string; ejemplo: string; enTusApps: string; pregunta: string; fecha: string }
 interface Progreso { id: string; estado: "nueva" | "entendida" | "repasar"; veces: number; ultima: string; explicacion: Explicacion | null; duda: string }
 type LeccionP = Leccion & { progreso: Progreso };
-interface Datos { lecciones: LeccionP[]; cuenta: { entendidas: number; repasar: number; total: number }; siguiente: string | null }
+interface Datos {
+  materia: IdMateria;
+  temas: string[];
+  lecciones: LeccionP[];
+  cuenta: { entendidas: number; repasar: number; total: number };
+  siguiente: string | null;
+  materias: { id: IdMateria; nombre: string; emoji: string; vistas: number; total: number }[];
+}
 interface Noticia { titulo: string; resumen: string; importa: string; termino: string; enlace: string; fuente: string }
+interface Correccion { correcta: string; natural: string; errores: { mal: string; bien: string; porque: string }[]; nota: string }
+type Vista = "hoy" | "temario" | "visto" | "ampliar" | "novedades" | "corregir";
 
 const ICO = { entendida: "✅", repasar: "🔁", nueva: "▫️" } as const;
-const TXT = { entendida: "Entendida", repasar: "Por repasar", nueva: "Sin ver" } as const;
+const TXT = { entendida: "Vista", repasar: "Sin entender aún", nueva: "Sin ver" } as const;
 
 /** Vista gráfica: el flujo de la lección como cajas con flechas (en vertical en el móvil). */
 function Flujo({ pasos }: { pasos: string[] }) {
@@ -33,12 +43,12 @@ function Bloque({ ico, titulo, children }: { ico: string; titulo: string; childr
   return (
     <div className="rounded-xl border border-borde bg-card-2 p-3">
       <div className="text-xs font-semibold text-txt-2 mb-1">{ico} {titulo}</div>
-      <div className="text-sm text-txt leading-relaxed">{children}</div>
+      <div className="text-sm text-txt leading-relaxed whitespace-pre-line">{children}</div>
     </div>
   );
 }
 
-function VistaLeccion({ l, lecciones, abrir, recargar }: { l: LeccionP; lecciones: LeccionP[]; abrir: (id: string) => void; recargar: () => void }) {
+function VistaLeccion({ l, m, lecciones, abrir, recargar }: { l: LeccionP; m: Materia; lecciones: LeccionP[]; abrir: (id: string) => void; recargar: () => void }) {
   const [modo, setModo] = useState<"texto" | "grafico">("texto");
   const [duda, setDuda] = useState("");
   const [pidiendo, setPidiendo] = useState(false);
@@ -56,7 +66,7 @@ function VistaLeccion({ l, lecciones, abrir, recargar }: { l: LeccionP; leccione
   const entiendo = async () => {
     try {
       await llamar("/api/estudio", "POST", { accion: "entiendo", id: l.id });
-      avisar("Apuntado: volverá en unos días para repasar");
+      avisar("Apuntado: queda en «Lo visto»");
       recargar();
     } catch (e) {
       avisar((e as Error).message, "error");
@@ -79,7 +89,7 @@ function VistaLeccion({ l, lecciones, abrir, recargar }: { l: LeccionP; leccione
   return (
     <Tarjeta
       titulo={<span>{ICO[l.progreso.estado]} {l.titulo}</span>}
-      sub={`${l.tema} · ${TXT[l.progreso.estado]}${l.progreso.ultima ? ` · última vez ${l.progreso.ultima.split("-").reverse().join("/")}` : ""}`}
+      sub={`${l.tema} · ${TXT[l.progreso.estado]}${l.progreso.ultima ? ` · ${l.progreso.ultima.split("-").reverse().join("/")}` : ""}`}
       extra={
         <div className="flex gap-1">
           <Chip activo={modo === "texto"} onClick={() => setModo("texto")}>Texto</Chip>
@@ -91,21 +101,30 @@ function VistaLeccion({ l, lecciones, abrir, recargar }: { l: LeccionP; leccione
       {modo === "texto" ? (
         <div className="grid gap-2">
           <p className="text-sm text-txt leading-relaxed">{l.explicacion}</p>
-          <Bloque ico="🧩" titulo="Como si…">{l.analogia}</Bloque>
-          <Bloque ico="🛠" titulo="Dónde lo usas tú">{l.enTusApps}</Bloque>
-          <Bloque ico="💬" titulo="Cómo decírselo a un cliente">{l.paraCliente}</Bloque>
+          <Bloque ico="🧩" titulo={m.et.analogia}>{l.analogia}</Bloque>
+          <Bloque ico="🛠" titulo={m.et.enTusApps}>{l.enTusApps}</Bloque>
+          <Bloque ico="💬" titulo={m.et.paraCliente}>{l.paraCliente}</Bloque>
         </div>
       ) : (
         <div className="grid gap-4">
           <div>
-            <div className="text-xs font-semibold text-txt-2 mb-2">Cómo funciona, paso a paso</div>
+            <div className="text-xs font-semibold text-txt-2 mb-2">{m.et.flujo}</div>
             <Flujo pasos={l.flujo} />
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
-            <Bloque ico="🧩" titulo="Imagínalo así">{l.analogia}</Bloque>
-            <Bloque ico="🛠" titulo="En tus apps">{l.enTusApps}</Bloque>
-            <Bloque ico="💬" titulo="En una reunión">{l.paraCliente}</Bloque>
+            <Bloque ico="🧩" titulo={m.et.analogia}>{l.analogia}</Bloque>
+            <Bloque ico="🛠" titulo={m.et.enTusApps}>{l.enTusApps}</Bloque>
+            <Bloque ico="💬" titulo={m.et.paraCliente}>{l.paraCliente}</Bloque>
           </div>
+        </div>
+      )}
+
+      {l.fuentes && l.fuentes.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-txt-3">📎 Fuentes:</span>
+          {l.fuentes.map((u) => (
+            <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="text-acento hover:underline">{dominio(u)}</a>
+          ))}
         </div>
       )}
 
@@ -123,14 +142,14 @@ function VistaLeccion({ l, lecciones, abrir, recargar }: { l: LeccionP; leccione
           <div className="text-xs font-semibold text-acento">🔁 Explicado de otra forma{l.progreso.duda ? ` · tu duda: «${l.progreso.duda}»` : ""}</div>
           <p className="text-sm text-txt leading-relaxed">{ex.explicacion}</p>
           {ex.ejemplo && <p className="text-sm text-txt"><b>🏠 Ejemplo:</b> {ex.ejemplo}</p>}
-          {ex.enTusApps && <p className="text-sm text-txt"><b>🛠 En tus apps:</b> {ex.enTusApps}</p>}
+          {ex.enTusApps && <p className="text-sm text-txt"><b>🛠 {m.et.enTusApps}:</b> {ex.enTusApps}</p>}
           {ex.pregunta && <p className="text-sm text-txt-2"><b>❔ Ponte a prueba:</b> {ex.pregunta}</p>}
         </div>
       )}
 
       {pidiendo && (
         <div className="mt-4 grid gap-2">
-          <textarea className={inputCls} rows={2} value={duda} onChange={(e) => setDuda(e.target.value)} placeholder="¿Qué parte no te encaja? (opcional, p. ej. «no veo la diferencia con una búsqueda normal»)" />
+          <textarea className={inputCls} rows={2} value={duda} onChange={(e) => setDuda(e.target.value)} placeholder="¿Qué parte no te encaja? (opcional)" />
           <div className="flex gap-2">
             <Boton tipo="primario" onClick={explicar} disabled={preguntando}>{preguntando ? "Pensando un ejemplo…" : "Explícamelo de otra forma"}</Boton>
             <Boton tipo="fantasma" onClick={() => setPidiendo(false)}>Cancelar</Boton>
@@ -142,6 +161,121 @@ function VistaLeccion({ l, lecciones, abrir, recargar }: { l: LeccionP; leccione
         <Boton tipo="primario" onClick={entiendo}>✅ Lo entiendo</Boton>
         {!pidiendo && <Boton onClick={() => setPidiendo(true)}>🤔 No lo entiendo</Boton>}
       </div>
+    </Tarjeta>
+  );
+}
+
+const dominio = (u: string) => {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return u.slice(0, 40);
+  }
+};
+
+const IDEAS: Record<IdMateria, string[]> = {
+  tecnica: ["Nivel más avanzado de agentes", "Seguridad de APIs con IA", "Cómo medir la calidad de un chatbot"],
+  compras: ["Compras más complejas: acuerdos marco y pedidos abiertos", "Penalizaciones y garantías en contratos", "Negociar con un proveedor que tiene la sartén por el mango"],
+  ingles: ["Algo más difícil: discrepar con educación en una reunión", "Phrasal verbs que se usan en el trabajo", "Condicionales para negociar"],
+  refranes: ["Más refranes de la huerta de Murcia", "Refranes del campo de Cartagena y Lorca", "Refranes sobre el dinero y los tratos"],
+};
+
+/** «Ampliar»: pide lecciones nuevas sobre lo que quiera; se buscan en internet y se guardan en su temario. */
+function Ampliar({ m, alTerminar }: { m: Materia; alTerminar: (primera: string) => void }) {
+  const [texto, setTexto] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const pedir = async (peticion: string) => {
+    setCargando(true);
+    try {
+      const r = await llamar<{ tema: string; lecciones: { id: string; titulo: string }[] }>("/api/estudio", "POST", { accion: "ampliar", materia: m.id, texto: peticion });
+      avisar(`${r.lecciones.length} lecciones nuevas en «${r.tema}»`);
+      setTexto("");
+      alTerminar(r.lecciones[0].id);
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+  return (
+    <Tarjeta titulo={`Ampliar ${m.nombre}`} sub="Dime qué quieres aprender y busco en internet fuentes fiables para prepararte 3 o 4 lecciones nuevas con el mismo formato. Tarda alrededor de un minuto.">
+      <div className="grid gap-2">
+        <textarea className={inputCls} rows={2} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={`p. ej. «${IDEAS[m.id][0]}»`} disabled={cargando} />
+        <div className="flex flex-wrap gap-1.5">
+          {IDEAS[m.id].map((i) => (
+            <Chip key={i} onClick={() => !cargando && pedir(i)}>{i}</Chip>
+          ))}
+        </div>
+        <div><Boton tipo="primario" onClick={() => pedir(texto)} disabled={cargando}>{cargando ? "Buscando y preparando lecciones…" : "➕ Prepararme lecciones nuevas"}</Boton></div>
+        {cargando && <Cargando texto="Buscando en fuentes fiables y montando las lecciones (≈1 minuto)…" />}
+      </div>
+    </Tarjeta>
+  );
+}
+
+/** Resumen de todo lo visto en la materia: lo esencial de cada lección, para leerlo de un tirón. */
+function LoVisto({ m, temas, lecciones, abrir }: { m: Materia; temas: string[]; lecciones: LeccionP[]; abrir: (id: string) => void }) {
+  const vistas = lecciones.filter((l) => l.progreso.estado === "entendida");
+  if (!vistas.length) return <Vacio>Aún no has marcado nada como entendido en {m.nombre}. Cuando pulses «✅ Lo entiendo», aparecerá aquí resumido.</Vacio>;
+  return (
+    <div className="grid gap-3">
+      {temas.map((tema) => {
+        const lista = vistas.filter((l) => l.tema === tema);
+        if (!lista.length) return null;
+        return (
+          <Tarjeta key={tema} titulo={tema} sub={`${lista.length} vista${lista.length === 1 ? "" : "s"}`}>
+            <ul className="grid gap-3">
+              {lista.map((l) => (
+                <li key={l.id} className="rounded-xl border border-borde bg-card-2 p-3">
+                  <button onClick={() => abrir(l.id)} className="text-sm font-semibold text-txt hover:text-acento text-left">{l.titulo}</button>
+                  <p className="text-sm text-txt mt-1">{l.frase}</p>
+                  <p className="text-sm text-txt-2 mt-1 whitespace-pre-line">💬 {l.paraCliente}</p>
+                </li>
+              ))}
+            </ul>
+          </Tarjeta>
+        );
+      })}
+    </div>
+  );
+}
+
+function Corrector() {
+  const [texto, setTexto] = useState("");
+  const [r, setR] = useState<Correccion | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const corregir = async () => {
+    setCargando(true);
+    try {
+      setR(await llamar<Correccion>("/api/estudio", "POST", { accion: "corregir", texto }));
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+  return (
+    <Tarjeta titulo="Corrígeme el inglés" sub="Escribe una frase o un correo corto en inglés y te digo qué falla y cómo lo diría un nativo. También en Telegram: /ingles corrige …">
+      <div className="grid gap-2">
+        <textarea className={inputCls} rows={4} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="p. ej. «Hello, I send you the order and I want know the delivery date»" />
+        <div><Boton tipo="primario" onClick={corregir} disabled={cargando || !texto.trim()}>{cargando ? "Corrigiendo…" : "✍️ Corregir"}</Boton></div>
+      </div>
+      {r && (
+        <div className="mt-4 grid gap-2">
+          <Bloque ico="✍️" titulo="Corregida">{r.correcta}</Bloque>
+          {r.natural && <Bloque ico="🗣" titulo="Más natural">{r.natural}</Bloque>}
+          {r.errores.length > 0 && (
+            <Bloque ico="🔎" titulo="Qué fallaba">
+              <ul className="grid gap-1">
+                {r.errores.map((e, i) => (
+                  <li key={i}><s className="text-txt-3">{e.mal}</s> → <b>{e.bien}</b>: {e.porque}</li>
+                ))}
+              </ul>
+            </Bloque>
+          )}
+          {r.nota && <p className="text-sm text-txt-2">💡 {r.nota}</p>}
+        </div>
+      )}
     </Tarjeta>
   );
 }
@@ -190,27 +324,55 @@ function Novedades({ abrir, nombre }: { abrir: (id: string) => void; nombre: (id
 }
 
 export default function Estudio() {
-  const { datos, error, cargando, recargar } = useApi<Datos>("/api/estudio");
-  const [vista, setVista] = useState<"hoy" | "temario" | "novedades">("hoy");
+  const [idMateria, setIdMateria] = useState<IdMateria>("tecnica");
+  const { datos, error, cargando, recargar } = useApi<Datos>(`/api/estudio?m=${idMateria}`);
+  const [vista, setVista] = useState<Vista>("hoy");
   const [abierta, setAbierta] = useState<string | null>(null);
+  const m = materiaPor(idMateria);
 
   useEffect(() => {
-    // Enlaces desde Telegram: ?l=<lección> o ?vista=novedades
+    // Enlaces desde Telegram: ?m=<materia>, ?l=<lección>, ?vista=novedades|visto
     const q = new URLSearchParams(location.search);
     /* eslint-disable react-hooks/set-state-in-effect -- parámetros de la URL, solo en el navegador */
+    if (q.get("m") && MATERIAS.some((x) => x.id === q.get("m"))) setIdMateria(q.get("m") as IdMateria);
     if (q.get("l")) setAbierta(q.get("l"));
-    if (q.get("vista") === "novedades") setVista("novedades");
+    const v = q.get("vista");
+    if (v === "novedades" || v === "visto" || v === "corregir") setVista(v);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
-  const porTema = useMemo(
-    () => TEMAS.map((t) => ({ tema: t, lista: (datos?.lecciones || []).filter((l) => l.tema === t) })),
-    [datos],
+  const porTema = useMemo(() => (datos?.temas || m.temas).map((t) => ({ tema: t, lista: (datos?.lecciones || []).filter((l) => l.tema === t) })), [datos, m]);
+
+  const cambiarMateria = (id: IdMateria) => {
+    setIdMateria(id);
+    setAbierta(null);
+    setVista("hoy");
+    history.replaceState(null, "", `/estudio?m=${id}`);
+  };
+
+  const pestañas = (
+    <div className="flex flex-wrap gap-1.5">
+      {MATERIAS.map((x) => {
+        const c = datos?.materias.find((y) => y.id === x.id);
+        return (
+          <Chip key={x.id} activo={idMateria === x.id} onClick={() => cambiarMateria(x.id)}>
+            {x.emoji} {x.nombre}{c ? ` · ${c.vistas}/${c.total}` : ""}
+          </Chip>
+        );
+      })}
+    </div>
   );
 
-  if (cargando && !datos) return <Cargando texto="Cargando tu temario…" />;
-  if (error && !datos) return <FalloCarga error={error} reintentar={recargar} />;
-  if (!datos) return null;
+  if (!datos || datos.materia !== idMateria) {
+    if (error && !cargando) return <FalloCarga error={error} reintentar={recargar} />;
+    return (
+      <div className="grid gap-4">
+        <Titulo titulo="Estudio" sub={m.sub} />
+        {pestañas}
+        <Cargando texto={`Cargando ${m.nombre}…`} />
+      </div>
+    );
+  }
 
   const abrir = (id: string) => {
     setAbierta(id);
@@ -223,28 +385,32 @@ export default function Estudio() {
 
   return (
     <div className="grid gap-4">
-      <Titulo titulo="Estudio" sub="La teoría de lo que construyes: léelo, márcalo y pide otra explicación cuando no te encaje. También en Telegram con /estudio y /novedades." />
+      <Titulo titulo="Estudio" sub={`${m.sub} En Telegram: /${m.comando}${m.id === "tecnica" ? " y /novedades" : ""}.`} />
+      {pestañas}
       <div className="grid grid-cols-3 gap-3">
-        <Kpi etiqueta="Entendidas" valor={`${datos.cuenta.entendidas}/${datos.cuenta.total}`} tono="bien" sub={`${Math.round((100 * datos.cuenta.entendidas) / datos.cuenta.total)} %`} />
-        <Kpi etiqueta="Por repasar" valor={datos.cuenta.repasar} tono={datos.cuenta.repasar ? "aviso" : undefined} sub={datos.cuenta.repasar ? "salen primero" : "nada pendiente"} />
-        <Kpi etiqueta="Siguiente" valor={<span className="text-base">{datos.siguiente ? nombre(datos.siguiente) : "Todo al día"}</span>} />
+        <Kpi etiqueta="Vistas" valor={`${datos.cuenta.entendidas}/${datos.cuenta.total}`} tono="bien" sub={`${Math.round((100 * datos.cuenta.entendidas) / Math.max(1, datos.cuenta.total))} %`} />
+        <Kpi etiqueta="Sin entender" valor={datos.cuenta.repasar} tono={datos.cuenta.repasar ? "aviso" : undefined} sub={datos.cuenta.repasar ? "salen primero" : "nada pendiente"} />
+        <Kpi etiqueta="Siguiente" valor={<span className="text-base">{datos.siguiente ? nombre(datos.siguiente) : "Todo visto"}</span>} />
       </div>
       <div className="flex flex-wrap gap-1.5">
         <Chip activo={vista === "hoy"} onClick={() => setVista("hoy")}>📖 Lección</Chip>
         <Chip activo={vista === "temario"} onClick={() => setVista("temario")}>📚 Temario</Chip>
-        <Chip activo={vista === "novedades"} onClick={() => setVista("novedades")}>🗞 Novedades</Chip>
+        <Chip activo={vista === "visto"} onClick={() => setVista("visto")}>📝 Lo visto</Chip>
+        <Chip activo={vista === "ampliar"} onClick={() => setVista("ampliar")}>➕ Ampliar</Chip>
+        {m.id === "ingles" && <Chip activo={vista === "corregir"} onClick={() => setVista("corregir")}>✍️ Corrígeme</Chip>}
+        {m.id === "tecnica" && <Chip activo={vista === "novedades"} onClick={() => setVista("novedades")}>🗞 Novedades</Chip>}
       </div>
 
       {vista === "hoy" &&
         (actual ? (
           <>
             {abierta && abierta !== datos.siguiente && datos.siguiente && (
-              <div><Boton pequeno tipo="fantasma" onClick={() => setAbierta(null)}>← Ir a la que toca hoy</Boton></div>
+              <div><Boton pequeno tipo="fantasma" onClick={() => setAbierta(null)}>← Ir a la siguiente que toca</Boton></div>
             )}
-            <VistaLeccion l={actual} lecciones={datos.lecciones} abrir={abrir} recargar={recargar} />
+            <VistaLeccion l={actual} m={m} lecciones={datos.lecciones} abrir={abrir} recargar={recargar} />
           </>
         ) : (
-          <Vacio>🎉 Todo al día. Repasa lo que quieras desde el temario o mira las novedades.</Vacio>
+          <Vacio>🎉 Has visto todo {m.nombre}. Tienes el resumen en «Lo visto», y en «➕ Ampliar» te preparo más.</Vacio>
         ))}
 
       {vista === "temario" && (
@@ -252,7 +418,7 @@ export default function Estudio() {
           {porTema.map(({ tema, lista }) => {
             const ok = lista.filter((l) => l.progreso.estado === "entendida").length;
             return (
-              <Tarjeta key={tema} titulo={tema} sub={`${ok} de ${lista.length} entendidas`}>
+              <Tarjeta key={tema} titulo={tema} sub={`${ok} de ${lista.length} vistas`}>
                 <div className="h-1.5 rounded-full bg-card-2 mb-3 overflow-hidden">
                   <div className="h-full bg-acento" style={{ width: `${(100 * ok) / Math.max(1, lista.length)}%` }} />
                 </div>
@@ -272,7 +438,18 @@ export default function Estudio() {
         </div>
       )}
 
-      {vista === "novedades" && <Novedades abrir={abrir} nombre={nombre} />}
+      {vista === "visto" && <LoVisto m={m} temas={datos.temas} lecciones={datos.lecciones} abrir={abrir} />}
+      {vista === "ampliar" && (
+        <Ampliar
+          m={m}
+          alTerminar={(primera) => {
+            recargar();
+            abrir(primera);
+          }}
+        />
+      )}
+      {vista === "corregir" && m.id === "ingles" && <Corrector />}
+      {vista === "novedades" && m.id === "tecnica" && <Novedades abrir={abrir} nombre={nombre} />}
     </div>
   );
 }
