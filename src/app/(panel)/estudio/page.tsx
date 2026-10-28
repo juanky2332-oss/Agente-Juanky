@@ -17,7 +17,7 @@ interface Datos {
 }
 interface Noticia { titulo: string; resumen: string; importa: string; termino: string; enlace: string; fuente: string }
 interface Correccion { correcta: string; natural: string; errores: { mal: string; bien: string; porque: string }[]; nota: string }
-type Vista = "hoy" | "temario" | "visto" | "ampliar" | "novedades" | "corregir";
+type Vista = "hoy" | "temario" | "visto" | "ampliar" | "novedades" | "corregir" | "practicar";
 
 const ICO = { entendida: "✅", repasar: "🔁", nueva: "▫️" } as const;
 const TXT = { entendida: "Vista", repasar: "Sin entender aún", nueva: "Sin ver" } as const;
@@ -48,7 +48,7 @@ function Bloque({ ico, titulo, children }: { ico: string; titulo: string; childr
   );
 }
 
-function VistaLeccion({ l, m, lecciones, abrir, recargar }: { l: LeccionP; m: Materia; lecciones: LeccionP[]; abrir: (id: string) => void; recargar: () => void }) {
+function VistaLeccion({ l, m, lecciones, abrir, recargar, practicar }: { l: LeccionP; m: Materia; lecciones: LeccionP[]; abrir: (id: string) => void; recargar: () => void; practicar?: () => void }) {
   const [modo, setModo] = useState<"texto" | "grafico">("texto");
   const [duda, setDuda] = useState("");
   const [pidiendo, setPidiendo] = useState(false);
@@ -159,6 +159,7 @@ function VistaLeccion({ l, m, lecciones, abrir, recargar }: { l: LeccionP; m: Ma
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Boton tipo="primario" onClick={entiendo}>✅ Lo entiendo</Boton>
+        {practicar && <Boton onClick={practicar}>🎯 Practicar esto</Boton>}
         {!pidiendo && <Boton onClick={() => setPidiendo(true)}>🤔 No lo entiendo</Boton>}
       </div>
     </Tarjeta>
@@ -176,7 +177,7 @@ const dominio = (u: string) => {
 const IDEAS: Record<IdMateria, string[]> = {
   tecnica: ["Nivel más avanzado de agentes", "Seguridad de APIs con IA", "Cómo medir la calidad de un chatbot"],
   compras: ["Compras más complejas: acuerdos marco y pedidos abiertos", "Penalizaciones y garantías en contratos", "Negociar con un proveedor que tiene la sartén por el mango"],
-  ingles: ["Algo más difícil: discrepar con educación en una reunión", "Phrasal verbs que se usan en el trabajo", "Condicionales para negociar"],
+  ingles: ["Phrasal verbs que se usan en el trabajo", "Inglés para reclamar calidad y devoluciones", "Presentar mi empresa a un proveedor nuevo"],
   refranes: ["Más refranes de la huerta de Murcia", "Refranes del campo de Cartagena y Lorca", "Refranes sobre el dinero y los tratos"],
 };
 
@@ -237,6 +238,105 @@ function LoVisto({ m, temas, lecciones, abrir }: { m: Materia; temas: string[]; 
         );
       })}
     </div>
+  );
+}
+
+interface Ejercicio { tipo: string; tema: string; enunciado: string; texto: string; pista: string }
+interface Marcador { hechos: number; bien: number }
+interface Corregido { bien: boolean; nota: number; tuya: string; corregida: string; natural: string; explicacion: string; errores: { mal: string; bien: string; porque: string }[] }
+const TIPO_TXT: Record<string, string> = { traducir: "Traduce al inglés", completar: "Completa el hueco", responder: "Contesta al proveedor", corregir: "Corrige la frase" };
+
+/** Práctica directa: la IA pone un ejercicio de su trabajo, él responde y se corrige al momento. */
+function Practicar({ lecciones, temaInicial }: { lecciones: LeccionP[]; temaInicial: string }) {
+  const [tema, setTema] = useState(temaInicial);
+  const [ej, setEj] = useState<Ejercicio | null>(null);
+  const [mk, setMk] = useState<Marcador | null>(null);
+  const [resp, setResp] = useState("");
+  const [corr, setCorr] = useState<{ correccion: Corregido; ejercicio: { solucion: string } } | null>(null);
+  const [verPista, setVerPista] = useState(false);
+  const [cargando, setCargando] = useState(false);
+  const pedir = async (t = tema, tipo = "") => {
+    setCargando(true);
+    setCorr(null);
+    setResp("");
+    setVerPista(false);
+    try {
+      const r = await llamar<{ ejercicio: Ejercicio; marcador: Marcador }>("/api/estudio", "POST", { accion: "ejercicio", texto: t, tipo });
+      setEj(r.ejercicio);
+      setMk(r.marcador);
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+  const corregir = async () => {
+    setCargando(true);
+    try {
+      const r = await llamar<{ correccion: Corregido; ejercicio: { solucion: string }; marcador: Marcador }>("/api/estudio", "POST", { accion: "responder", texto: resp });
+      setCorr(r);
+      setMk(r.marcador);
+    } catch (e) {
+      avisar((e as Error).message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- primer ejercicio al abrir
+    pedir(temaInicial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al abrir
+  }, []);
+  return (
+    <Tarjeta
+      titulo="🎯 Practicar"
+      sub={mk && mk.hechos ? `Llevas ${mk.bien} de ${mk.hechos} bien (${Math.round((100 * mk.bien) / mk.hechos)} %)` : "Ejercicios de tu trabajo: traducir, completar, contestar a un proveedor o corregir. También en Telegram: /ingles practica"}
+    >
+      <div className="grid gap-3">
+        <div className="flex flex-wrap gap-1.5">
+          <Chip activo={!tema} onClick={() => { setTema(""); pedir(""); }}>🔀 Variado</Chip>
+          {lecciones.map((l) => (
+            <Chip key={l.id} activo={tema === l.id} onClick={() => { setTema(l.id); pedir(l.id); }}>{l.titulo}</Chip>
+          ))}
+        </div>
+        {cargando && !ej && <Cargando texto="Preparando un ejercicio…" />}
+        {ej && (
+          <div className="rounded-xl border border-borde bg-card-2 p-3 grid gap-2">
+            <div className="text-xs text-txt-3">{TIPO_TXT[ej.tipo] || ej.tipo} · {ej.tema}</div>
+            <div className="text-sm text-txt">{ej.enunciado}</div>
+            <div className="text-base font-medium text-txt whitespace-pre-line">{ej.texto}</div>
+            {ej.pista && (verPista ? <div className="text-sm text-txt-2">💡 {ej.pista}</div> : <div><Boton pequeno tipo="fantasma" onClick={() => setVerPista(true)}>💡 Ver pista</Boton></div>)}
+            {!corr && (
+              <>
+                <textarea className={inputCls} rows={ej.tipo === "responder" ? 4 : 2} value={resp} onChange={(e) => setResp(e.target.value)} placeholder="Escribe tu respuesta en inglés" disabled={cargando} />
+                <div className="flex flex-wrap gap-2">
+                  <Boton tipo="primario" onClick={corregir} disabled={cargando || !resp.trim()}>{cargando ? "Corrigiendo…" : "✅ Corregir"}</Boton>
+                  <Boton tipo="fantasma" onClick={() => pedir()} disabled={cargando}>Saltar</Boton>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        {corr && (
+          <div className={`rounded-xl border p-3 grid gap-2 ${corr.correccion.bien ? "border-acento/40 bg-acento-suave" : "border-borde bg-card-2"}`}>
+            <div className="text-sm font-semibold text-txt">{corr.correccion.bien ? "✅ ¡Bien!" : "❌ Casi"} · {corr.correccion.nota}/10</div>
+            <div className="text-sm text-txt-2">Tu respuesta: {corr.correccion.tuya}</div>
+            {corr.correccion.corregida !== corr.correccion.tuya && <div className="text-sm text-txt"><b>✍️ Corregida:</b> {corr.correccion.corregida}</div>}
+            {corr.correccion.natural && <div className="text-sm text-txt"><b>🗣 Natural:</b> {corr.correccion.natural}</div>}
+            {corr.correccion.errores.length > 0 && (
+              <ul className="grid gap-1 text-sm">
+                {corr.correccion.errores.map((x, i) => (
+                  <li key={i}><s className="text-txt-3">{x.mal}</s> → <b>{x.bien}</b>: {x.porque}</li>
+                ))}
+              </ul>
+            )}
+            {corr.correccion.explicacion && <div className="text-sm text-txt-2">💡 {corr.correccion.explicacion}</div>}
+            <div className="text-xs text-txt-3">Solución propuesta: {corr.ejercicio.solucion}</div>
+            <div><Boton tipo="primario" onClick={() => pedir()} disabled={cargando}>{cargando ? "Preparando…" : "➡️ Otro ejercicio"}</Boton></div>
+          </div>
+        )}
+      </div>
+    </Tarjeta>
   );
 }
 
@@ -328,6 +428,7 @@ export default function Estudio() {
   const { datos, error, cargando, recargar } = useApi<Datos>(`/api/estudio?m=${idMateria}`);
   const [vista, setVista] = useState<Vista>("hoy");
   const [abierta, setAbierta] = useState<string | null>(null);
+  const [practicarTema, setPracticarTema] = useState("");
   const m = materiaPor(idMateria);
 
   useEffect(() => {
@@ -337,7 +438,7 @@ export default function Estudio() {
     if (q.get("m") && MATERIAS.some((x) => x.id === q.get("m"))) setIdMateria(q.get("m") as IdMateria);
     if (q.get("l")) setAbierta(q.get("l"));
     const v = q.get("vista");
-    if (v === "novedades" || v === "visto" || v === "corregir") setVista(v);
+    if (v === "novedades" || v === "visto" || v === "corregir" || v === "practicar") setVista(v);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
@@ -397,6 +498,7 @@ export default function Estudio() {
         <Chip activo={vista === "temario"} onClick={() => setVista("temario")}>📚 Temario</Chip>
         <Chip activo={vista === "visto"} onClick={() => setVista("visto")}>📝 Lo visto</Chip>
         <Chip activo={vista === "ampliar"} onClick={() => setVista("ampliar")}>➕ Ampliar</Chip>
+        {m.id === "ingles" && <Chip activo={vista === "practicar"} onClick={() => { setPracticarTema(""); setVista("practicar"); }}>🎯 Practicar</Chip>}
         {m.id === "ingles" && <Chip activo={vista === "corregir"} onClick={() => setVista("corregir")}>✍️ Corrígeme</Chip>}
         {m.id === "tecnica" && <Chip activo={vista === "novedades"} onClick={() => setVista("novedades")}>🗞 Novedades</Chip>}
       </div>
@@ -407,7 +509,7 @@ export default function Estudio() {
             {abierta && abierta !== datos.siguiente && datos.siguiente && (
               <div><Boton pequeno tipo="fantasma" onClick={() => setAbierta(null)}>← Ir a la siguiente que toca</Boton></div>
             )}
-            <VistaLeccion l={actual} m={m} lecciones={datos.lecciones} abrir={abrir} recargar={recargar} />
+            <VistaLeccion l={actual} m={m} lecciones={datos.lecciones} abrir={abrir} recargar={recargar} practicar={m.id === "ingles" ? () => { setPracticarTema(actual.id); setVista("practicar"); } : undefined} />
           </>
         ) : (
           <Vacio>🎉 Has visto todo {m.nombre}. Tienes el resumen en «Lo visto», y en «➕ Ampliar» te preparo más.</Vacio>
@@ -448,6 +550,7 @@ export default function Estudio() {
           }}
         />
       )}
+      {vista === "practicar" && m.id === "ingles" && <Practicar key={practicarTema || "variado"} lecciones={datos.lecciones} temaInicial={practicarTema} />}
       {vista === "corregir" && m.id === "ingles" && <Corrector />}
       {vista === "novedades" && m.id === "tecnica" && <Novedades abrir={abrir} nombre={nombre} />}
     </div>

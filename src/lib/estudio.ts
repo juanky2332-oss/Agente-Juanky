@@ -172,7 +172,7 @@ export async function resumen(idMateria?: string) {
 const PISTAS: Record<IdMateria, string> = {
   tecnica: "IA aplicada, desarrollo de software con IA, agentes, RAG, bases de datos, seguridad. Fuentes: documentación oficial (OpenAI, Anthropic, Google), blogs técnicos reconocidos.",
   compras: "Compras industriales y gestión de proveedores en España: negociación, contratos, logística, normativa. Fuentes: CIPS, ISM, Harvard (PON), escuelas de negocio, BOE para normas españolas.",
-  ingles: "Aprender inglés siendo adulto hispanohablante y el inglés de negocios para compras (correos, llamadas, negociación). Fuentes: British Council, Cambridge English, universidades, lingüistas reconocidos.",
+  ingles: "Inglés práctico de negocios para compras: frases hechas, vocabulario y gramática con ejemplos reales (correos, llamadas, reuniones, negociación). NADA de consejos de cómo estudiar. Fuentes: British Council, Cambridge Dictionary, BBC Learning English, Oxford Learner's Dictionaries.",
   refranes: "Refranes españoles reales y su significado; si piden de Murcia, refranes y dichos recogidos en la Región de Murcia (huerta, Campo de Cartagena, Lorca, Noroeste). Fuentes: Refranero multilingüe del Centro Virtual Cervantes, regmurcia.com, revista Cangilón, Universidad de Murcia, prensa regional.",
 };
 
@@ -223,7 +223,7 @@ Cada lección tiene estos campos (lo que significa cada uno en esta materia va e
 - "titulo" (${m.id === "refranes" ? "el refrán literal" : "título corto"})
 - "frase" (${m.et.frase}, una línea)
 - "explicacion" (${m.et.explicacion}, 3-5 frases con datos concretos)
-- "analogia" (${m.et.analogia}${m.id === "ingles" ? ": un consejo concreto de un experto o de la fuente de las notas, diciendo de quién es" : ""})
+- "analogia" (${m.et.analogia}${m.id === "ingles" ? ": el error típico de un hispanohablante y cómo se dice bien" : ""})
 - "enTusApps" (${m.et.enTusApps})
 - "paraCliente" (${m.et.paraCliente}${m.id === "ingles" ? "; frases en inglés con su traducción, una por línea con \\n" : ""})
 - "flujo" (${m.et.flujo}: 3-5 pasos cortos)
@@ -260,6 +260,115 @@ No repitas lo que ya tiene: ${yaTiene}`,
   const t = await tablaCreando(HOJA_EXTRA, CAB_EXTRA);
   for (const l of nuevas) await anadirFila(HOJA_EXTRA, { ID: l.id, MATERIA: m.id, FECHA: hoyISO(), PETICION: pide, LECCION: JSON.stringify(l) }, t.cabecera);
   return { materia: m.id, tema, lecciones: nuevas };
+}
+
+// ───────── Practicar inglés: ejercicios que la IA pone y corrige ─────────
+// El ejercicio en curso y el marcador se guardan en la fila «_PRACTICA» de la pestaña Estudio (columna EXPLICACION),
+// así sirve igual desde la app que desde Telegram (/ingles practica → /ingles r tu respuesta).
+export interface Ejercicio { tipo: "traducir" | "completar" | "responder" | "corregir"; tema: string; enunciado: string; texto: string; pista: string; solucion: string; fecha: string }
+export interface Marcador { hechos: number; bien: number; recientes: string[] }
+export interface Correccion2 { bien: boolean; nota: number; tuya: string; corregida: string; natural: string; explicacion: string; errores: { mal: string; bien: string; porque: string }[] }
+interface Practica { actual: Ejercicio | null; marcador: Marcador }
+const TIPOS: Ejercicio["tipo"][] = ["traducir", "traducir", "completar", "responder", "corregir"];
+
+async function leerPractica(): Promise<Practica> {
+  const t = await tabla();
+  const f = filaPorId(t, "_PRACTICA");
+  const p = f ? jsonSeguro<Practica>(aObjeto(t, f.celdas).EXPLICACION) : null;
+  return { actual: p?.actual || null, marcador: { hechos: p?.marcador?.hechos || 0, bien: p?.marcador?.bien || 0, recientes: p?.marcador?.recientes || [] } };
+}
+const guardarPractica = (p: Practica) => guardar("_PRACTICA", "Práctica de inglés (no tocar)", { EXPLICACION: JSON.stringify(p) });
+
+/** Ejercicio nuevo. «tema» = id de una lección de inglés, un tema libre («llamadas») o vacío (variado). */
+export async function nuevoEjercicio(tema = "", tipo = ""): Promise<{ ejercicio: Omit<Ejercicio, "solucion">; marcador: Marcador }> {
+  const ms = await materiasCompletas();
+  const ing = ms.find((m) => m.id === "ingles")!;
+  const l = ing.lecciones.find((x) => x.id === tema.trim());
+  const sobre = l
+    ? `la lección «${l.titulo}»: ${l.frase} ${l.explicacion} Frases: ${l.paraCliente}`
+    : tema.trim() || `cualquiera de estos temas, variando: ${ing.lecciones.map((x) => x.titulo).join("; ")}`;
+  const p = await leerPractica();
+  const t = (TIPOS as string[]).includes(tipo) ? (tipo as Ejercicio["tipo"]) : TIPOS[(p.marcador.hechos + Math.floor(Math.random() * 3)) % TIPOS.length];
+  const r = await n8n<{ choices?: { message?: { content?: string } }[] }>(
+    {
+      op: "openai",
+      body: {
+        model: "gpt-5.4-mini",
+        reasoning_effort: "low",
+        max_completion_tokens: 1200,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `Pones ejercicios de inglés a un español que trabaja en compras industriales (nivel básico-intermedio, sube poco a poco: lleva ${p.marcador.hechos} ejercicios y ${p.marcador.bien} bien). Situaciones reales de su trabajo: proveedores, pedidos, ofertas, plazos, facturas, llamadas, reuniones.
+Tipo de ejercicio: ${t}.
+- traducir: «texto» = 1-2 frases en ESPAÑOL para que las pase al inglés.
+- completar: «texto» = frase en inglés con un hueco «___» (una palabra o dos); en el enunciado di qué falta (p. ej. «la preposición de tiempo»).
+- responder: «texto» = correo corto (2-4 frases) de un proveedor EN INGLÉS; él contesta en inglés lo que se le pida en el enunciado.
+- corregir: «texto» = frase en inglés con 1-2 errores típicos de hispanohablante; él la escribe bien.
+Devuelve SOLO JSON {"enunciado": "qué tiene que hacer, en español, una línea", "texto": "...", "pista": "una ayuda corta en español", "solucion": "la respuesta correcta en inglés", "tema": "tema en 2-4 palabras"}.
+No repitas estos ejercicios recientes: ${p.marcador.recientes.join(" | ") || "(ninguno)"}`,
+          },
+          { role: "user", content: `Ejercicio sobre ${sobre}` },
+        ],
+      },
+    },
+    60000,
+  );
+  const d = jsonSeguro<Partial<Ejercicio>>(r.choices?.[0]?.message?.content || "");
+  if (!d?.texto || !d.solucion) throw new ErrorN8n("La IA no ha preparado el ejercicio. Prueba otra vez.", 502);
+  const ej: Ejercicio = { tipo: t, tema: String(d.tema || l?.titulo || "Variado"), enunciado: String(d.enunciado || ""), texto: String(d.texto), pista: String(d.pista || ""), solucion: String(d.solucion), fecha: hoyISO() };
+  p.actual = ej;
+  p.marcador.recientes = [...p.marcador.recientes, ej.texto.slice(0, 80)].slice(-12);
+  await guardarPractica(p);
+  const { solucion: _s, ...sinSolucion } = ej;
+  void _s;
+  return { ejercicio: sinSolucion, marcador: p.marcador };
+}
+
+/** Corrige su respuesta al ejercicio en curso, explica los fallos y suma al marcador. */
+export async function responderEjercicio(respuesta: string): Promise<{ correccion: Correccion2; ejercicio: Ejercicio; marcador: Marcador }> {
+  const tuya = respuesta.trim().slice(0, 1500);
+  if (!tuya) throw new ErrorN8n("Escribe tu respuesta.", 400);
+  const p = await leerPractica();
+  if (!p.actual) throw new ErrorN8n("No hay ningún ejercicio en curso. Pide uno nuevo.", 400);
+  const ej = p.actual;
+  const r = await n8n<{ choices?: { message?: { content?: string } }[] }>(
+    {
+      op: "openai",
+      body: {
+        model: "gpt-5.4-mini",
+        reasoning_effort: "low",
+        max_completion_tokens: 1200,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `Corriges ejercicios de inglés de un español que trabaja en compras (nivel básico-intermedio). Sé justo: si su respuesta es correcta aunque no coincida con la solución propuesta, está bien. Usa nombres gramaticales correctos y explica en español, corto y claro.
+Devuelve SOLO JSON {"bien": true|false, "nota": 0-10, "corregida": "su respuesta corregida cambiando lo mínimo", "natural": "cómo lo diría un nativo en el trabajo", "explicacion": "1-2 frases en español: qué ha hecho bien y qué debe recordar", "errores": [{"mal": "...", "bien": "...", "porque": "..."}]}.`,
+          },
+          { role: "user", content: `Ejercicio (${ej.tipo}): ${ej.enunciado}\nTexto: ${ej.texto}\nSolución propuesta: ${ej.solucion}\nSu respuesta: ${tuya}` },
+        ],
+      },
+    },
+    60000,
+  );
+  const d = jsonSeguro<Partial<Correccion2>>(r.choices?.[0]?.message?.content || "");
+  if (!d || typeof d.bien !== "boolean") throw new ErrorN8n("La IA no ha devuelto la corrección. Prueba otra vez.", 502);
+  const c: Correccion2 = {
+    bien: d.bien,
+    nota: Math.max(0, Math.min(10, Number(d.nota) || 0)),
+    tuya,
+    corregida: String(d.corregida || tuya),
+    natural: String(d.natural || ""),
+    explicacion: String(d.explicacion || ""),
+    errores: (Array.isArray(d.errores) ? d.errores : []).slice(0, 8).map((e) => ({ mal: String(e?.mal || ""), bien: String(e?.bien || ""), porque: String(e?.porque || "") })),
+  };
+  p.marcador.hechos += 1;
+  if (c.bien) p.marcador.bien += 1;
+  p.actual = null;
+  await guardarPractica(p);
+  return { correccion: c, ejercicio: ej, marcador: p.marcador };
 }
 
 /** Corrector de inglés: corrige una frase suya, explica los fallos en español y propone una versión natural. No se guarda. */
@@ -399,6 +508,7 @@ export function tarjetaHtml(l: Leccion, p?: Progreso, m: Materia = materiaDe(l.i
     `\n➡️ ${l.flujo.map(escHtml).join(" → ")}`,
     l.fuentes?.length ? `📎 Fuentes: ${l.fuentes.map((u) => `<a href="${escHtml(u)}">${escHtml(dominio(u))}</a>`).join(" · ")}` : "",
     ex ? `\n🔁 <b>Tu explicación sencilla:</b> ${escHtml(ex.explicacion)}\n<b>Ejemplo:</b> ${escHtml(ex.ejemplo)}` : "",
+    m.id === "ingles" ? `\n🎯 Practícalo: <code>/ingles practica ${l.id}</code>` : "",
     `\n✅ <code>/${m.comando} ok ${l.id}</code> · ❓ <code>/${m.comando} no ${l.id} lo que no entiendes</code>`,
     `📊 Gráfico y progreso: ${APP}?m=${m.id}&l=${l.id}`,
   ].filter(Boolean).join("\n");
@@ -440,6 +550,31 @@ export async function deTexto(texto: string): Promise<string> {
   }
 
   if (m.id === "ingles") {
+    // /ingles practica [tema o id de lección] → ejercicio · /ingles r tu respuesta → corrección
+    const pr = t.match(/^(practica|practicar|ejercicio|ej)\b\s*([\s\S]*)$/i);
+    if (pr) {
+      const { ejercicio: e, marcador: mk } = await nuevoEjercicio(pr[2]);
+      return [
+        `🎯 <b>Ejercicio</b> · <i>${escHtml(e.tema)}</i>${mk.hechos ? ` · llevas ${mk.bien}/${mk.hechos} bien` : ""}`,
+        `\n${escHtml(e.enunciado)}`,
+        `\n<b>${escHtml(e.texto)}</b>`,
+        e.pista ? `\n💡 Pista: <tg-spoiler>${escHtml(e.pista)}</tg-spoiler>` : "",
+        `\nResponde así: <code>/ingles r tu respuesta</code>`,
+      ].filter(Boolean).join("\n");
+    }
+    const rs = t.match(/^(r|resp|respuesta)\s+([\s\S]+)$/i);
+    if (rs) {
+      const { correccion: c, ejercicio: e, marcador: mk } = await responderEjercicio(rs[2]);
+      return [
+        `${c.bien ? "✅ <b>¡Bien!</b>" : "❌ <b>Casi</b>"} · ${c.nota}/10 · llevas ${mk.bien}/${mk.hechos} bien`,
+        !c.bien || c.corregida !== c.tuya ? `\n✍️ <b>Corregida:</b> ${escHtml(c.corregida)}` : "",
+        c.natural ? `🗣 <b>Natural:</b> ${escHtml(c.natural)}` : "",
+        c.errores.length ? `\n${c.errores.map((x) => `• <s>${escHtml(x.mal)}</s> → <b>${escHtml(x.bien)}</b>: ${escHtml(x.porque)}`).join("\n")}` : "",
+        c.explicacion ? `\n💡 ${escHtml(c.explicacion)}` : "",
+        `\n<i>Solución propuesta: ${escHtml(e.solucion)}</i>`,
+        `\nOtro: <code>/ingles practica</code>`,
+      ].filter(Boolean).join("\n");
+    }
     const c = t.match(/^(corrige|corregir|corrígeme|corrigeme|check)\s+([\s\S]+)$/i);
     if (c) {
       const r = await corregirIngles(c[2]);

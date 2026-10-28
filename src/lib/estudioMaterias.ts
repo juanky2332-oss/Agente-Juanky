@@ -37,10 +37,10 @@ export const MATERIAS: Materia[] = [
   },
   {
     id: "ingles", nombre: "Inglés", emoji: "🇬🇧", comando: "ingles",
-    sub: "Cómo aprender según los expertos e inglés práctico para compras. Y un corrector de frases.",
+    sub: "Inglés práctico para compras y el trabajo: aprendes frases y gramática de verdad y practicas con ejercicios que se corrigen solos.",
     temas: TEMAS_INGLES, lecciones: TEMARIO_INGLES,
-    et: { frase: "La idea", explicacion: "Explicación", analogia: "Consejo de experto", enTusApps: "Hazlo hoy (5 min)", paraCliente: "Frases para usar", flujo: "Paso a paso" },
-    profesor: "Juanky es español, trabaja en compras industriales y quiere aprender inglés (nivel básico-intermedio) para correos y llamadas con proveedores. Explica en español; los ejemplos en inglés van con su traducción. En «enTusApps» propón un ejercicio de 5 minutos para hoy. No atribuyas frases a expertos si no estás seguro.",
+    et: { frase: "Lo que aprendes", explicacion: "Cómo se usa", analogia: "Ojo, error típico", enTusApps: "Practica ahora", paraCliente: "Frases para usar", flujo: "La estructura" },
+    profesor: "Juanky es español, trabaja en compras industriales y aprende inglés (nivel básico-intermedio) para correos, llamadas y reuniones con proveedores. NADA de consejos de cómo estudiar: enséñale inglés directamente (frases, vocabulario, gramática) con ejemplos en inglés y su traducción. En «enTusApps» pon un ejercicio corto con su solución.",
   },
   {
     id: "refranes", nombre: "Refranes", emoji: "🗣", comando: "refranes",
