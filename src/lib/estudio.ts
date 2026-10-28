@@ -223,7 +223,7 @@ Cada lección tiene estos campos (lo que significa cada uno en esta materia va e
 - "titulo" (${m.id === "refranes" ? "el refrán literal" : "título corto"})
 - "frase" (${m.et.frase}, una línea)
 - "explicacion" (${m.et.explicacion}, 3-5 frases con datos concretos)
-- "analogia" (${m.et.analogia})
+- "analogia" (${m.et.analogia}${m.id === "ingles" ? ": un consejo concreto de un experto o de la fuente de las notas, diciendo de quién es" : ""})
 - "enTusApps" (${m.et.enTusApps})
 - "paraCliente" (${m.et.paraCliente}${m.id === "ingles" ? "; frases en inglés con su traducción, una por línea con \\n" : ""})
 - "flujo" (${m.et.flujo}: 3-5 pasos cortos)
@@ -279,7 +279,7 @@ export async function corregirIngles(texto: string): Promise<Correccion> {
             role: "system",
             content: `Eres profesor de inglés de un español que trabaja en compras industriales (nivel básico-intermedio). Corrige lo que escribe.
 Devuelve SOLO JSON: {"correcta": "su texto corregido, cambiando lo mínimo", "natural": "cómo lo diría un nativo en un correo de trabajo", "errores": [{"mal": "trozo con error", "bien": "corregido", "porque": "explicación corta en español"}], "nota": "un ánimo o consejo de una frase, en español"}.
-Si no hay errores, "errores" vacío y dilo en "nota". Si escribe en español, tradúcelo en "correcta" y "natural" y explícalo en "nota".`,
+Usa los nombres gramaticales correctos (el «to» de «want to know» es la partícula del infinitivo, no una preposición) y no marques como error lo que también es correcto. Si no hay errores, "errores" vacío y dilo en "nota". Si escribe en español, tradúcelo en "correcta" y "natural" y explícalo en "nota".`,
           },
           { role: "user", content: t },
         ],
