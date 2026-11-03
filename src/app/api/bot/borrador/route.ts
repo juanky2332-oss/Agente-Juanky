@@ -1,5 +1,6 @@
 import { manejar } from "@/lib/ruta";
 import { crearBorrador, yaVistoCorreo, modificarBorrador, confirmarBorrador, descartarBorrador, leerBorrador, borradoresPendientes, tarjetaDe, urlDe, lineaPendiente, type FichaBorrador, type CambiosTaller, type Borrador } from "@/lib/borradores";
+import { leerDatos } from "@/lib/parse";
 import { ErrorN8n, n8n } from "@/lib/n8n";
 import { normId } from "@/lib/ingresos";
 import { sincronizarTaller } from "@/lib/tallerSync";
@@ -23,10 +24,15 @@ export const POST = manejar(async (req: Request) => {
   });
   let datos = b.datos || {};
   if (typeof datos === "string") {
+    // El bot manda «campo=valor; campo=valor» (un JSON con comillas rompe la llamada en n8n).
     try {
-      datos = datos.trim() ? JSON.parse(datos) : {};
+      datos = datos.trim().startsWith("{") ? JSON.parse(datos) : leerDatos(datos);
     } catch {
-      throw new ErrorN8n("datos tiene que ser un JSON", 400);
+      try {
+        datos = leerDatos(datos);
+      } catch (e) {
+        throw new ErrorN8n((e as Error).message, 400);
+      }
     }
   }
   switch (b.accion) {

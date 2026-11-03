@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aTexto, importe, num } from "./parse";
+import { aTexto, importe, leerDatos, num } from "./parse";
 
 describe("importe() — importes escritos por personas o por el bot", () => {
   it.each([
@@ -44,5 +44,25 @@ describe("num() — lectura de la hoja (no cambia)", () => {
     expect(num("82.07")).toBe(82.07);
     expect(num("1.500")).toBe(1.5);
     expect(num("2.475,00€")).toBe(2475);
+  });
+});
+
+
+describe("leerDatos() — los «datos» que manda el bot", () => {
+  it.each([
+    ["unidades=2500", { unidades: "2500" }],
+    ["unidades=2500; precioUnit=3", { unidades: "2500", precioUnit: "3" }],
+    ["precioUnit=150,50; notas=entrega parcial", { precioUnit: "150,50", notas: "entrega parcial" }],
+    ["unidades: 2500, precioUnit: 3", { unidades: "2500", precioUnit: "3" }],
+    ['{"unidades":"2500"}', { unidades: "2500" }],
+    ['{"negocio":"Taller","concepto":"Filtros, juntas","unidades":"3"}', { negocio: "Taller", concepto: "Filtros, juntas", unidades: "3" }],
+    ["{unidades:2500}", { unidades: "2500" }],
+    ["fecha=20/09/2026\nconcepto=Ejes", { fecha: "20/09/2026", concepto: "Ejes" }],
+    ["", {}],
+  ])("%s", (txt, esperado) => {
+    expect(leerDatos(txt)).toEqual(esperado);
+  });
+  it("objeto tal cual (la app)", () => {
+    expect(leerDatos({ unidades: 2500, notas: null })).toEqual({ unidades: "2500", notas: "" });
   });
 });

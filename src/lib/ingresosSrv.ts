@@ -96,7 +96,8 @@ export async function crearIngreso(e: EntradaIngreso & { cobroInicial?: number |
   return { id, cobro };
 }
 
-export async function modificarIngreso(id: string, e: EntradaIngreso, avisar = true) {
+/** Lo que escribiría modificarIngreso (sin escribir nada). */
+async function planModificar(id: string, e: EntradaIngreso) {
   // Si cambia el % o el total y no se ha tocado a mano lo tuyo, se recalcula (y el "NN %" del
   // concepto). Los pagos del cliente a Flownexion están en TU parte: se escalan con ella.
   let actual: Ingreso | undefined;
@@ -119,6 +120,49 @@ export async function modificarIngreso(id: string, e: EntradaIngreso, avisar = t
   const cols = aColumnas(e, true);
   if (actual && cols.IMPORTE && num(cols.IMPORTE) < actual.cobrado - 0.005)
     throw new ErrorN8n(`#${id}: ya te han pagado ${eur(actual.cobrado)} y lo tuyo quedaría en ${eur(num(cols.IMPORTE))}. Revisa los pagos antes.`, 400);
+  return { cols, actual };
+}
+
+/** Huella de la fila tal como está: si cambia entre la pregunta y el «sí», no se toca nada. */
+function huella(o: Record<string, string>) {
+  let h = 5381;
+  for (const ch of JSON.stringify(o)) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0;
+  return h.toString(36);
+}
+
+async function filaActual(id: string) {
+  const t = await leerTabla("Ingresos");
+  const f = filaPorId(t, id);
+  if (!f) throw new ErrorN8n(`#${id} ya no existe`, 404);
+  return aObjeto(t, f.celdas);
+}
+
+const NOMBRE_COL: Record<string, string> = {
+  NEGOCIO: "Negocio", CLIENTE: "Cliente", CONCEPTO: "Concepto", REFERENCIA: "Referencia", TIPO: "Tipo", ESTADO: "Estado", NOTAS: "Notas",
+  UNIDADES: "Unidades", FECHA: "Fecha", VENCIMIENTO: "Vencimiento", PRECIO_UNIT: "Precio por unidad", PORCENTAJE: "Tu %",
+  TOTAL_TRABAJO: "Total del trabajo", IMPORTE: "Lo tuyo",
+};
+const EN_EUROS = new Set(["PRECIO_UNIT", "TOTAL_TRABAJO", "IMPORTE"]);
+
+/**
+ * Primer paso de un cambio por Telegram: enseña «antes → después» y una clave. No escribe nada.
+ * El segundo paso es modificarIngreso(…, clave) cuando él dice que sí.
+ */
+export async function previsualizarModificacion(id: string, e: EntradaIngreso) {
+  const antes = await filaActual(id);
+  const { cols, actual } = await planModificar(id, e);
+  const ver = (k: string, v: string) => (!v ? "—" : EN_EUROS.has(k) && tieneNumero(v) ? eur(num(v)) : k === "PORCENTAJE" ? `${v} %` : v);
+  const cambios = Object.entries(cols)
+    .filter(([k, v]) => (antes[k] || "").trim() !== v && !(EN_EUROS.has(k) && tieneNumero(antes[k]) && tieneNumero(v) && Math.abs(num(antes[k]) - num(v)) < 0.005))
+    .map(([k, v]) => `• ${NOMBRE_COL[k] || k.toLowerCase()}: ${escHtml(ver(k, antes[k] || ""))} → <b>${escHtml(ver(k, v))}</b>`);
+  const ajustaCliente = !!(actual && cols.IMPORTE && actual.importe && escalarPagosCliente(actual, num(cols.IMPORTE)).size);
+  return { cambios, ajustaCliente, clave: huella(antes) };
+}
+
+export async function modificarIngreso(id: string, e: EntradaIngreso, avisar = true, clave?: string) {
+  if (clave && huella(await filaActual(id)) !== clave.trim())
+    throw new ErrorN8n("Ese ingreso ha cambiado desde que te lo enseñé (quizá desde la app): vuelve a pedírmelo y te enseño cómo queda.", 409);
+  const { cols, actual } = await planModificar(id, e);
   const { antes } = await modificarPorId("Ingresos", id, cols);
   if (actual && cols.IMPORTE && actual.importe) {
     const esc = escalarPagosCliente(actual, num(cols.IMPORTE));
@@ -131,7 +175,14 @@ export async function modificarIngreso(id: string, e: EntradaIngreso, avisar = t
   return { id };
 }
 
-export async function borrarIngreso(id: string, avisar = true) {
+/** Clave para borrar en dos pasos (misma huella que al modificar). */
+export async function claveBorrado(id: string) {
+  return huella(await filaActual(id));
+}
+
+export async function borrarIngreso(id: string, avisar = true, clave?: string) {
+  if (clave && huella(await filaActual(id)) !== clave.trim())
+    throw new ErrorN8n("Ese ingreso ha cambiado desde que te lo enseñé: vuelve a pedírmelo.", 409);
   const ings = await leerIngresos();
   const i = ings.find((x) => x.id === id);
   if (!i) throw new ErrorN8n(`#${id} ya no existe`, 404);

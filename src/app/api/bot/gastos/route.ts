@@ -1,7 +1,7 @@
 import { manejar } from "@/lib/ruta";
 import { leerGastos, textoConsulta, textoMes, buscarGasto, fichaGasto, modificarGasto, borrarGasto, mandarFacturas, informeCsv, deTexto } from "@/lib/gastosBot";
 import { ErrorN8n } from "@/lib/n8n";
-import { normaliza } from "@/lib/parse";
+import { normaliza, leerDatos } from "@/lib/parse";
 
 // Gastos por Telegram (tool «Gastos» del agente). Todo a petición; devuelve el texto YA MONTADO.
 //   consulta · mes · ver · facturas (mandar al chat) · informe (CSV) · modificar · borrar
@@ -19,10 +19,15 @@ export const POST = manejar(async (req: Request) => {
   const f = { busqueda: b.busqueda, categoria: b.categoria, proveedor: b.proveedor, ambito: b.ambito, desde: b.desde, hasta: b.hasta, tipo: b.tipo };
   let datos = b.datos || {};
   if (typeof datos === "string") {
+    // El bot manda «campo=valor; campo=valor» (un JSON con comillas rompe la llamada en n8n).
     try {
-      datos = datos.trim() ? JSON.parse(datos) : {};
+      datos = datos.trim().startsWith("{") ? JSON.parse(datos) : leerDatos(datos);
     } catch {
-      throw new ErrorN8n("datos tiene que ser un JSON", 400);
+      try {
+        datos = leerDatos(datos);
+      } catch (e) {
+        throw new ErrorN8n((e as Error).message, 400);
+      }
     }
   }
   // Comandos (/gastos /facturas /informe): todo viene en texto libre.

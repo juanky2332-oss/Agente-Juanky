@@ -140,3 +140,36 @@ export function hoyISO(): string {
 export function hoyEs(): string {
   return isoAEs(hoyISO());
 }
+
+/**
+ * Los «datos» que manda el bot. n8n mete el texto ENTRE COMILLAS dentro del JSON de la petición,
+ * así que un JSON con comillas rompe la llamada («Could not replace placeholders in body», pasó
+ * el 03-11-2026 al cambiar las unidades de un pedido). Por eso el formato del bot es
+ * «campo=valor; campo=valor» sin comillas. Se sigue aceptando un objeto o un JSON (la app).
+ */
+export function leerDatos(v: unknown): Record<string, string> {
+  if (v && typeof v === "object" && !Array.isArray(v))
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, x === null || x === undefined ? "" : String(x)]));
+  const t = String(v ?? "").trim();
+  if (!t) return {};
+  if (t.startsWith("{")) {
+    try {
+      return leerDatos(JSON.parse(t));
+    } catch {
+      /* JSON roto: se lee como «campo: valor» más abajo */
+    }
+  }
+  const o: Record<string, string> = {};
+  // Separadores: «;», salto de línea o una coma seguida de otro «campo=». Así «150,50» no se parte.
+  const re = /["'{\s,]*([A-Za-zÁÉÍÓÚáéíóúñÑ_][\wÁÉÍÓÚáéíóúñÑ]*)["']?\s*[=:]\s*["']?(.*?)["']?\s*(?=[;\n}]|,\s*["']?[A-Za-zÁÉÍÓÚáéíóúñÑ_][\wÁÉÍÓÚáéíóúñÑ]*["']?\s*[=:]|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t))) {
+    if (m[0] === "") {
+      re.lastIndex++;
+      continue;
+    }
+    o[m[1]] = m[2].trim();
+  }
+  if (!Object.keys(o).length) throw new Error("No entiendo los datos: escríbelos como «campo=valor; campo=valor»");
+  return o;
+}

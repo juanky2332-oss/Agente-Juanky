@@ -1,10 +1,10 @@
 import { manejar } from "@/lib/ruta";
-import { leerIngresos, crearIngreso, modificarIngreso, borrarIngreso, registrarCobro, modificarCobro, borrarCobro, type EntradaIngreso } from "@/lib/ingresosSrv";
+import { leerIngresos, crearIngreso, modificarIngreso, previsualizarModificacion, claveBorrado, borrarIngreso, registrarCobro, modificarCobro, borrarCobro, type EntradaIngreso } from "@/lib/ingresosSrv";
 import { pagarVarios, cambiarReparto, leerProyectos, planMantenimiento } from "@/lib/ingresosBloque";
 import { textoProyectos } from "@/lib/ingresos";
 import { textoCobros, resumir, porFuente, normId, nombreIngreso, buscarPorRef, type Ingreso } from "@/lib/ingresos";
 import { escHtml, ErrorN8n } from "@/lib/n8n";
-import { eur, isoAEs, normaliza } from "@/lib/parse";
+import { eur, isoAEs, normaliza, leerDatos } from "@/lib/parse";
 import { sincronizarTaller } from "@/lib/tallerSync";
 import { historialTaller } from "@/lib/borradores";
 import { seguimientoPedido, type Historial } from "@/lib/facturaTaller";
@@ -63,8 +63,33 @@ async function resolverId(x: string | undefined, prefijo = "I") {
   return x;
 }
 
+const si = (v: unknown) => v === true || /^(s[ií]|true|1|ok|vale)$/i.test(String(v ?? "").trim());
+
+// Nombres de campo que el bot puede escribir de varias formas → los de la app.
+const CAMPOS: Record<string, keyof EntradaIngreso | "cobroInicial"> = {
+  negocio: "negocio", cliente: "cliente", concepto: "concepto", referencia: "referencia", ref: "referencia", pedido: "referencia", fecha: "fecha",
+  importe: "importe", lotuyo: "importe", totaltrabajo: "totalTrabajo", total: "totalTrabajo", porcentaje: "porcentaje", pct: "porcentaje",
+  unidades: "unidades", uds: "unidades", cantidad: "unidades", preciounit: "precioUnit", precio: "precioUnit", preciounidad: "precioUnit",
+  tipo: "tipo", estado: "estado", vencimiento: "vencimiento", notas: "notas", cobroinicial: "cobroInicial",
+};
+function datosIngreso(v: unknown): EntradaIngreso & { cobroInicial?: string } {
+  let crudo: Record<string, string>;
+  try {
+    crudo = leerDatos(v);
+  } catch (e) {
+    throw new ErrorN8n((e as Error).message, 400);
+  }
+  const o: Record<string, string> = {};
+  for (const [k, x] of Object.entries(crudo)) {
+    const c = CAMPOS[normaliza(k).replace(/[^a-z]/g, "")];
+    if (!c) throw new ErrorN8n(`No conozco el campo «${k}». Valen: negocio, cliente, concepto, referencia, fecha, unidades, precioUnit, totalTrabajo, porcentaje, importe, vencimiento, notas`, 400);
+    o[c] = x;
+  }
+  return o;
+}
+
 async function accion(req: Request) {
-  const b = (await req.json()) as { accion: string; id?: string; busqueda?: string; filtro?: string; importe?: string | number; fecha?: string; metodo?: string; notas?: string; destino?: string; desde?: string; hasta?: string; tipo?: string; negocio?: string; cliente?: string; porcentaje?: string | number; simular?: string | boolean; datos?: EntradaIngreso & { cobroInicial?: number | string } };
+  const b = (await req.json()) as { accion: string; id?: string; busqueda?: string; filtro?: string; importe?: string | number; fecha?: string; metodo?: string; notas?: string; destino?: string; desde?: string; hasta?: string; tipo?: string; negocio?: string; cliente?: string; porcentaje?: string | number; simular?: string | boolean; datos?: unknown; confirmar?: string | boolean; clave?: string };
   const acc = normaliza(b.accion);
   if (b.id && !/cobro/.test(acc) && !/varios|reparto|porcentaje/.test(acc)) b.id = await resolverId(b.id);
   if (acc === "cobros" || acc === "pendientes") return { resultado: textoCobros(await leerIngresos(), b.filtro || b.busqueda || "") };
@@ -128,19 +153,49 @@ async function accion(req: Request) {
     return { resultado: r.texto };
   }
   if (acc === "crear" || acc === "alta") {
-    const r = await crearIngreso(b.datos || {}, false);
+    const r = await crearIngreso(datosIngreso(b.datos), false);
     const i = (await leerIngresos()).find((x) => x.id === r.id)!;
     return { resultado: `💰 Ingreso creado\n\n${ficha(i)}` };
   }
+  // Modificar y borrar por Telegram van en DOS pasos (lo pidió él, 03-11-2026): primero el
+  // resumen de lo que se va a hacer y una clave; solo con confirmar=si y esa clave se escribe.
   if (acc === "modificar") {
     if (!b.id) throw new ErrorN8n("Falta el ID", 400);
-    await modificarIngreso(normId(b.id), b.datos || {}, false);
-    const i = (await leerIngresos()).find((x) => x.id === normId(b.id!))!;
-    return { resultado: `✏️ Modificado\n\n${ficha(i)}` };
+    const id = normId(b.id), datos = datosIngreso(b.datos);
+    if (!Object.keys(datos).length) throw new ErrorN8n("Dime qué cambio (datos=campo=valor)", 400);
+    const i0 = (await leerIngresos()).find((x) => x.id === id);
+    if (!i0) throw new ErrorN8n(`No encuentro #${id}`, 404);
+    if (!si(b.confirmar)) {
+      const p = await previsualizarModificacion(id, datos);
+      if (!p.cambios.length) return { resultado: `${nombreIngreso(i0)}\n\nYa está así: no hay nada que cambiar.` };
+      return {
+        resultado: [
+          `✏️ <b>¿Hago este cambio?</b>`,
+          i0.negocio === "Taller" && i0.referencia ? nombreIngreso(i0) : `<code>#${i0.id}</code> ${escHtml(i0.concepto)}`,
+          "",
+          ...p.cambios,
+          ...(p.ajustaCliente ? ["• y se ajustan en proporción los pagos del cliente a Flownexion"] : []),
+          ...(i0.negocio === "Taller" ? ["• y se actualiza también en «Trabajos taller»"] : []),
+          "",
+          `Dime «sí» y lo guardo. <i>(clave ${p.clave})</i>`,
+        ].join("\n"),
+      };
+    }
+    if (!b.clave?.trim()) throw new ErrorN8n("Falta la clave del primer paso: vuelve a pedírmelo y te enseño el cambio.", 400);
+    await modificarIngreso(id, datos, false, b.clave);
+    const i = (await leerIngresos()).find((x) => x.id === id)!;
+    return { resultado: `✅ Guardado\n\n${ficha(i, await historialTaller())}` };
   }
   if (acc === "borrar") {
     if (!b.id) throw new ErrorN8n("Falta el ID", 400);
-    const r = await borrarIngreso(normId(b.id), false);
+    const id = normId(b.id);
+    if (!si(b.confirmar)) {
+      const i0 = (await leerIngresos()).find((x) => x.id === id);
+      if (!i0) throw new ErrorN8n(`No encuentro #${id}`, 404);
+      return { resultado: `🗑 <b>¿Borro este ingreso?</b>\n\n${ficha(i0)}${i0.cobros.length ? `\n\n⚠️ Se borran también sus ${i0.cobros.length} pagos.` : ""}\n\nDime «sí, bórralo». <i>(clave ${await claveBorrado(id)})</i>` };
+    }
+    if (!b.clave?.trim()) throw new ErrorN8n("Falta la clave del primer paso: vuelve a pedírmelo.", 400);
+    const r = await borrarIngreso(id, false, b.clave);
     return { resultado: `🗑 Borrado #${r.id}${r.cobrosBorrados ? ` y sus ${r.cobrosBorrados} pagos` : ""}` };
   }
   if (acc === "modificar_cobro") {
