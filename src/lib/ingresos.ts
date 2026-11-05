@@ -271,6 +271,30 @@ export function cobrosPorMes(ings: Ingreso[], meses: string[]) {
   return filas;
 }
 
+/**
+ * Quién te debe qué, cada pagador en su línea. El taller y Flownexion son dos pagadores distintos:
+ * la suma va la última y dice que es de los dos, para que nunca se lea como deuda de uno solo.
+ */
+export function textoDesglose(ings: Ingreso[], negocios: Negocio[] = ["Taller", "Flownexion", "Otro"]): string {
+  const e = (n: number) => n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+  const L: string[] = [];
+  const partes: number[] = [];
+  for (const n of negocios) {
+    const r = resumir(ings, n);
+    if (r.pendiente <= 0.005) continue;
+    const ya = n === "Flownexion" ? r.debeFlownexion : r.pendiente;
+    partes.push(ya);
+    if (n === "Taller") L.push(`🔧 El taller te debe: <b>${e(ya)}</b>`);
+    else if (n === "Otro") L.push(`📦 Otros te deben: <b>${e(ya)}</b>`);
+    else {
+      L.push(`💻 Flownexion te debe ya: <b>${e(ya)}</b>`);
+      if (r.esperaCliente > 0.005) L.push(`  ⏳ y ${e(r.esperaCliente)} más cuando le paguen los clientes (aún no te lo debe)`);
+    }
+  }
+  if (partes.length > 1) L.push(`Sumando los dos: ${e(partes.reduce((s, x) => s + x, 0))}`);
+  return L.join("\n");
+}
+
 /** Texto para Telegram (/cobros): calculado aquí, el bot solo lo manda. */
 export function textoCobros(ings: Ingreso[], filtro = ""): string {
   const f = normaliza(filtro);
@@ -278,14 +302,13 @@ export function textoCobros(ings: Ingreso[], filtro = ""): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const e = (n: number) => n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
   const L: string[] = ["💰 <b>Lo que te deben</b>"];
-  let total = 0; // lo que te deben YA (taller + lo que Flownexion ya cobró del cliente)
-  let esperan = 0; // Flownexion: aún no lo han pagado los clientes
+  // Primero QUIÉN debe QUÉ, siempre separado: nunca un total suelto que parezca de un solo pagador.
+  const desglose = textoDesglose(ings, neg);
+  if (desglose) L.push("", desglose);
   for (const n of neg) {
     const xs = ings.filter((x) => x.negocio === n && x.pendiente > 0.005).sort((a, b) => b.pendiente - a.pendiente);
     if (!xs.length) continue;
     const r = resumir(ings, n);
-    total += n === "Flownexion" ? r.debeFlownexion : r.pendiente;
-    if (n === "Flownexion") esperan += r.esperaCliente;
     if (n === "Flownexion")
       L.push(
         "",
@@ -314,7 +337,6 @@ export function textoCobros(ings: Ingreso[], filtro = ""): string {
   }
   const sinPrecio = ings.filter((x) => neg.includes(x.negocio) && x.estado === "sin precio").length;
   if (L.length === 1) L.push("", "Nadie te debe nada 🎉");
-  else L.push("", `<b>Te deben ya: ${e(total)}</b>${esperan > 0.005 ? ` · y ${e(esperan)} más cuando paguen los clientes de Flownexion` : ""}`);
   if (sinPrecio) L.push(`⚪ ${sinPrecio} trabajos sin precio todavía (no cuentan).`);
   if (neg.includes("Flownexion")) L.push("🏦 = el cliente ya pagó a Flownexion · ⏳ = el cliente aún no ha pagado");
   L.push("", "Te han pagado a ti: <code>/cobrado #I012 150</code> (sin importe = entero)");
@@ -550,9 +572,16 @@ export function textoRecordatorioIngresos(ings: Ingreso[], hoy = hoyISO()): stri
   const mesDe = (x: Ingreso) => (x.fecha || "").slice(0, 7);
   const marca = (x: Ingreso) =>
     x.estado === "cobrado" ? "✅" : x.estado === "sin precio" ? "⚪" : x.negocio === "Flownexion" ? (x.debeFlownexion > 0.005 ? "🏦" : "⏳") : "⏳";
+  // Cada línea dice QUIÉN debe: el taller y Flownexion no se mezclan nunca.
+  const quienDebe = (x: Ingreso) => {
+    if (x.negocio === "Taller") return `el taller te debe <b>${e(x.pendiente)}</b>`;
+    if (x.negocio !== "Flownexion") return `te deben <b>${e(x.pendiente)}</b>`;
+    if (x.debeFlownexion <= 0.005) return `falta que pague el cliente <b>${e(x.esperaCliente)}</b>`;
+    return `Flownexion te debe <b>${e(x.debeFlownexion)}</b>${x.esperaCliente > 0.005 ? ` · y ${e(x.esperaCliente)} más cuando pague el cliente` : ""}`;
+  };
   const linea = (x: Ingreso) =>
     `${marca(x)} ${nombreIngreso(x)} — ` +
-    (x.estado === "cobrado" ? `cobrado ${e(x.cobrado)}` : x.importe === null ? "sin importe" : `te deben <b>${e(x.pendiente)}</b>${x.cobrado > 0.005 ? ` (cobrado ${e(x.cobrado)})` : ""}`);
+    (x.estado === "cobrado" ? `cobrado ${e(x.cobrado)}` : x.importe === null ? "sin importe" : `${quienDebe(x)}${x.cobrado > 0.005 ? ` (cobrado ${e(x.cobrado)})` : ""}`);
   const L = [`📅 <b>Día 5: repaso de ingresos</b>`, `¿Se han hecho estos pagos? Si te ha llegado algo que no me has dicho, o ha cambiado algún importe, dímelo y lo apunto.`];
   for (const [mes, titulo] of [[mesAnt, "mes pasado"], [mesAct, "este mes"]] as const) {
     const xs = vivos.filter((x) => esMensual(x) && mesDe(x) === mes).sort((a, b) => a.negocio.localeCompare(b.negocio) || a.concepto.localeCompare(b.concepto));

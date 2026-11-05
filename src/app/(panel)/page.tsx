@@ -40,7 +40,7 @@ export default function Inicio() {
   const fijo = (fin.datos?.recurrentes || []).reduce((s, r) => s + r.mensualEquivalente, 0);
 
   const pendTaller = ing.datos?.resumen.Taller.pendiente || 0;
-  const pendFlow = ing.datos?.resumen.Flownexion.pendiente || 0;
+  const debeFlow = ing.datos?.resumen.Flownexion.debeFlownexion || 0; // solo lo que Flownexion ya cobró del cliente
 
   const abiertas = (tar.datos?.notas || []).filter((n) => n.abierta && ["tarea", "recordatorio", "recurrente", "pendiente"].includes(n.tipo.toLowerCase()));
   const [ahora] = useState(() => Date.now());
@@ -62,7 +62,7 @@ export default function Inicio() {
           tono={gAntHastaHoy > 0 ? (gMes > gAntHastaHoy * 1.05 ? "alerta" : gMes < gAntHastaHoy * 0.95 ? "bien" : undefined) : undefined}
         />
         <Kpi etiqueta="Gastos fijos al mes" valor={fin.datos ? eur0(fijo) : "…"} sub="suministros y suscripciones" />
-        <Kpi etiqueta="Te deben (taller + Flownexion)" valor={ing.datos ? eur0(pendTaller + pendFlow) : "…"} sub={ing.datos ? `${ing.datos.resumen.Todo.nPendientes} líneas por cobrar` : ""} tono={pendTaller + pendFlow > 0 ? "aviso" : undefined} />
+        <Kpi etiqueta="Te deben ya (entre los dos)" valor={ing.datos ? eur0(pendTaller + debeFlow) : "…"} sub={ing.datos ? `🔧 Taller ${eur0(pendTaller)} · 💻 Flownexion ${eur0(debeFlow)}` : ""} tono={pendTaller + debeFlow > 0 ? "aviso" : undefined} />
         <Kpi etiqueta="Tareas" valor={tar.datos ? abiertas.length : "…"} sub={tar.datos ? `${vencidas.length} vencidas · ${paraHoy.length} para hoy` : ""} tono={vencidas.length ? "alerta" : undefined} />
       </div>
 
@@ -109,7 +109,7 @@ export default function Inicio() {
       {ing.datos && (
         <div className="grid gap-4 lg:grid-cols-2">
           {(["Taller", "Flownexion"] as const).map((n) => (
-            <Tarjeta key={n} titulo={n === "Taller" ? "🔧 Taller (te paga directo)" : `💻 Flownexion te debe ${eur0(ing.datos!.resumen.Flownexion.pendiente)}`} extra={<Link href="/ingresos" className="text-xs text-acento">Ingresos →</Link>} sub={`Tuyo: ${eur(ing.datos!.resumen[n].facturado)}${ing.datos!.resumen[n].nSinPrecio ? ` · ${ing.datos!.resumen[n].nSinPrecio} sin precio` : ""}`}>
+            <Tarjeta key={n} titulo={n === "Taller" ? "🔧 Taller (te paga directo)" : `💻 Flownexion te debe ya ${eur0(ing.datos!.resumen.Flownexion.debeFlownexion)}`} extra={<Link href="/ingresos" className="text-xs text-acento">Ingresos →</Link>} sub={`Tuyo: ${eur(ing.datos!.resumen[n].facturado)}${ing.datos!.resumen[n].nSinPrecio ? ` · ${ing.datos!.resumen[n].nSinPrecio} sin precio` : ""}`}>
               {n === "Taller" ? (
                 <BarraPartes partes={[{ nombre: "Cobrado", valor: ing.datos!.resumen[n].cobrado, color: c.bien }, { nombre: "Pendiente", valor: ing.datos!.resumen[n].pendiente, color: c.s5 }]} />
               ) : (

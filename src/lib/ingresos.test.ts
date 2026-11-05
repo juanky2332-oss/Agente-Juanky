@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aCobro, escalarPagosCliente, montarIngresos, resumir, textoRecordatorioIngresos } from "./ingresos";
+import { aCobro, escalarPagosCliente, montarIngresos, resumir, textoCobros, textoRecordatorioIngresos } from "./ingresos";
 
 const HOY = "2026-10-13";
 const fila = (n: number, o: Record<string, string>) => ({ fila: n, o });
@@ -122,6 +122,32 @@ describe("escalarPagosCliente: cambio de reparto (30 % a 60 %)", () => {
   });
 });
 
+describe("textoCobros: cada pagador por separado (datos inventados)", () => {
+  const xs = montarIngresos(
+    [
+      fila(2, { ID: "I060", NEGOCIO: "Taller", CONCEPTO: "Eje demo", IMPORTE: "100", TIPO: "trabajo" }),
+      fila(3, { ID: "I061", NEGOCIO: "Flownexion", CLIENTE: "Proyecto demo", CONCEPTO: "App demo", IMPORTE: "300", TIPO: "proyecto" }),
+    ],
+    [cobro(2, "I061", 200, "flownexion")],
+    HOY,
+  );
+  it("abre con lo del taller y lo de Flownexion en líneas distintas, y lo del cliente sin sumar", () => {
+    const t = textoCobros(xs);
+    expect(t).toContain("🔧 El taller te debe: <b>100,00 €</b>");
+    expect(t).toContain("💻 Flownexion te debe ya: <b>200,00 €</b>");
+    expect(t).toContain("100,00 € más cuando le paguen los clientes");
+    expect(t).toContain("Sumando los dos: 300,00 €");
+    expect(t.indexOf("🔧 El taller te debe")).toBeLessThan(t.indexOf("💻 Flownexion te debe ya: "));
+    expect(t).not.toContain("<b>Te deben ya");
+  });
+  it("si pide solo uno, no aparece el otro ni la suma", () => {
+    const t = textoCobros(xs, "taller");
+    expect(t).toContain("🔧 El taller te debe");
+    expect(t).not.toContain("Flownexion te debe");
+    expect(t).not.toContain("Sumando");
+  });
+});
+
 describe("textoRecordatorioIngresos (día 5, datos inventados)", () => {
   const xs = montarIngresos(
     [
@@ -139,8 +165,8 @@ describe("textoRecordatorioIngresos (día 5, datos inventados)", () => {
     expect(t).toContain("Septiembre 2026");
     expect(t).toContain("Octubre 2026");
     expect(t).toMatch(/✅ Mantenimiento demo <code>#P-P01-2026-09<\/code> — cobrado 50,00 €/);
-    expect(t).toMatch(/⏳ Mantenimiento demo <code>#P-P01-2026-10<\/code> — te deben <b>50,00 €<\/b>/);
-    expect(t).toContain("🏦 Mto demo 60 %");
+    expect(t).toMatch(/⏳ Mantenimiento demo <code>#P-P01-2026-10<\/code> — el taller te debe <b>50,00 €<\/b>/);
+    expect(t).toMatch(/🏦 Mto demo 60 %.* — Flownexion te debe <b>120,00 €<\/b>/);
   });
   it("lo viejo sin cobrar va resumido y lo anulado no sale", () => {
     expect(t).toContain("Taller y otros: 1 sin cobrar · <b>30,00 €</b>");
