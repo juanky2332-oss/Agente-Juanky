@@ -1,7 +1,7 @@
 // Propuesta comercial de «IndunexIA Gestión» en PDF (2 páginas). Sin red: solo datos -> bytes.
-// Tarifa vigente (oferta.json, web transformaconia.com/erp-industria/ y landing, desde 2026-10-25): tres planes
-// Básico 590 € + 59 €/mes, Profesional 690 € + 69 €/mes y Pro 990 € + 89 €/mes (precios de temporada hasta el 31/12/2026;
-// tarifa general 790 / 990 / 1.490 €). Puesta en marcha en un solo pago al empezar, 3 primeros meses de cuota gratis,
+// Tarifa vigente (oferta.json, web transformaconia.com/erp-industria/ y landing, desde 2026-11-15): tres planes
+// Básico 790 € + 99 €/mes, Profesional 1.290 € + 169 €/mes y Pro 1.990 € + 249 €/mes (precios de temporada hasta el 31/12/2026;
+// tarifa general 1.190 / 1.890 / 2.990 €). Puesta en marcha en un solo pago al empezar, 3 primeros meses de cuota gratis,
 // usuario extra 15 €/mes desde el primer mes, sin permanencia (30 días de aviso). Importes sin IVA.
 // REGLA: en lo comercial NUNCA aparece «Flownexion».
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
@@ -13,16 +13,16 @@ export type IdPlan = "basico" | "profesional" | "pro";
 
 export const PLANES: Record<IdPlan, { nombre: string; puestaEnMarcha: number; puestaEnMarchaGeneral: number; mantenimientoMes: number; incluye: string[] }> = {
   basico: {
-    nombre: "Básico", puestaEnMarcha: 590, puestaEnMarchaGeneral: 790, mantenimientoMes: 59,
+    nombre: "Básico", puestaEnMarcha: 790, puestaEnMarchaGeneral: 1190, mantenimientoMes: 99,
     incluye: ["Clientes, proveedores y catálogo", "Presupuestos, albaranes y facturas con tu logo", "Del presupuesto a la factura sin teclear", "Envío de documentos por correo", "Cobros y vencimientos con avisos", "Registro de gastos", "Agenda", "1 usuario incluido"],
   },
   profesional: {
-    nombre: "Profesional", puestaEnMarcha: 690, puestaEnMarchaGeneral: 990, mantenimientoMes: 69,
-    incluye: ["Todo lo del plan Básico", "Gastos por foto: la IA lee el ticket", "Albaranes y partes firmados en el móvil", "Calculadora de costes y margen", "Fiscal: IVA y paquete para tu asesor", "Informes: ventas, gastos y márgenes", "Avisos por Telegram", "Histórico del año en curso cargado"],
+    nombre: "Profesional", puestaEnMarcha: 1290, puestaEnMarchaGeneral: 1890, mantenimientoMes: 169,
+    incluye: ["Todo lo del plan Básico", "Gastos por foto: la IA lee el ticket", "Albaranes y partes firmados en el móvil", "Calculadora de costes y margen", "Fiscal: IVA y paquete para tu asesor", "Informes: ventas, gastos y márgenes", "Avisos por Telegram", "Histórico del año en curso cargado", "2 usuarios incluidos"],
   },
   pro: {
-    nombre: "Pro", puestaEnMarcha: 990, puestaEnMarchaGeneral: 1490, mantenimientoMes: 89,
-    incluye: ["Todo lo del plan Profesional", "Asistente con IA propio, también en Telegram", "Presupuesto desde plano con IA", "Todo tu histórico importado", "Una automatización a medida incluida", "Hasta 2 h/mes de ajustes y mejoras", "Soporte prioritario"],
+    nombre: "Pro", puestaEnMarcha: 1990, puestaEnMarchaGeneral: 2990, mantenimientoMes: 249,
+    incluye: ["Todo lo del plan Profesional", "Asistente con IA propio, también en Telegram", "Presupuesto desde plano con IA", "Todo tu histórico importado", "Una automatización a medida incluida", "Hasta 2 h/mes de ajustes y mejoras", "Soporte prioritario", "3 usuarios incluidos"],
   },
 };
 

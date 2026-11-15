@@ -42,9 +42,9 @@ describe("propuesta PDF", () => {
     expect(() => validarPeticion({ cliente: "Taller Demo", notas: "vía Flownexion" })).toThrow(ErrorPropuesta);
   });
 
-  it("cuota mensual = 69 + 15 por usuario extra", () => {
-    expect(cuotaMensual(0)).toBe(69);
-    expect(cuotaMensual(2)).toBe(99);
+  it("cuota mensual = 169 + 15 por usuario extra", () => {
+    expect(cuotaMensual(0)).toBe(169);
+    expect(cuotaMensual(2)).toBe(199);
   });
 
   it("nombre de archivo sin acentos ni símbolos", () => {
@@ -61,8 +61,8 @@ describe("planes", () => {
     expect(() => leerPlan("premium")).toThrow(ErrorPropuesta);
   });
   it("calcula la cuota de cada plan con los usuarios extra", () => {
-    expect(cuotaMensual(0, "basico")).toBe(59);
-    expect(cuotaMensual(2, "pro")).toBe(89 + 30);
+    expect(cuotaMensual(0, "basico")).toBe(99);
+    expect(cuotaMensual(2, "pro")).toBe(249 + 30);
     expect(validarPeticion({ cliente: "Talleres Demo SL", plan: "pro" }).plan).toBe("pro");
   });
   it("genera el PDF de cada plan", async () => {
