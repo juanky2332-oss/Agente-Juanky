@@ -3,8 +3,8 @@ import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const display = Space_Grotesk({ subsets: ["latin"], variable: "--fuente-display", weight: ["500", "600", "700"] });
-const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--fuente-mono", weight: ["400", "500"] });
+const display = Space_Grotesk({ subsets: ["latin"], variable: "--fuente-display" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--fuente-mono" });
 
 export const metadata: Metadata = {
   title: "Juanky · Panel",
