@@ -83,7 +83,7 @@ export function Toasts() {
       {lista.map((t) => (
         <div
           key={t.id}
-          className={`rounded-xl border px-4 py-3 text-sm shadow-lg bg-card ${t.tipo === "error" ? "border-alerta text-alerta-txt" : "border-borde"}`}
+          className={`cristal aviso-entra rounded-xl border px-4 py-3 text-sm shadow-lg ${t.tipo === "error" ? "border-alerta/60 text-alerta-txt" : "border-acento/30"}`}
         >
           {t.tipo === "error" ? "⚠️ " : "✓ "}
           {t.texto}
@@ -96,11 +96,11 @@ export function Toasts() {
 // ───────────── piezas ─────────────
 export function Tarjeta({ titulo, extra, children, className = "", sub }: { titulo?: ReactNode; extra?: ReactNode; children: ReactNode; className?: string; sub?: ReactNode }) {
   return (
-    <section className={`rounded-2xl border border-borde bg-card p-4 sm:p-5 min-w-0 ${className}`}>
+    <section className={`panel aparecer rounded-2xl border border-borde p-4 sm:p-5 min-w-0 ${className}`}>
       {(titulo || extra) && (
         <header className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            {titulo && <h2 className="text-[15px] font-semibold text-txt">{titulo}</h2>}
+            {titulo && <h2 className="font-display text-[15px] font-semibold tracking-tight text-txt">{titulo}</h2>}
             {sub && <p className="text-xs text-txt-3 mt-0.5">{sub}</p>}
           </div>
           {extra && <div className="shrink-0 flex items-center gap-2">{extra}</div>}
@@ -114,9 +114,9 @@ export function Tarjeta({ titulo, extra, children, className = "", sub }: { titu
 export function Kpi({ etiqueta, valor, sub, tono }: { etiqueta: string; valor: ReactNode; sub?: ReactNode; tono?: "bien" | "alerta" | "aviso" }) {
   const c = tono === "bien" ? "text-bien-txt" : tono === "alerta" ? "text-alerta-txt" : tono === "aviso" ? "text-aviso-txt" : "text-txt-3";
   return (
-    <div className="rounded-2xl border border-borde bg-card p-4 min-w-0">
-      <div className="text-xs font-medium text-txt-3 truncate">{etiqueta}</div>
-      <div className="mt-1 text-2xl font-semibold tabular text-txt truncate">{valor}</div>
+    <div className="panel hilo-luz aparecer rounded-2xl border border-borde p-4 min-w-0 transition-colors duration-200 hover:border-acento/40">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-txt-3 truncate" title={etiqueta}>{etiqueta}</div>
+      <div className="mt-1.5 font-display text-2xl font-semibold tabular tracking-tight text-txt truncate">{valor}</div>
       {sub && <div className={`mt-1 text-xs tabular ${c}`}>{sub}</div>}
     </div>
   );
@@ -129,7 +129,7 @@ export function Boton({
 }) {
   const t = {
     normal: "border border-borde bg-card hover:bg-card-2 text-txt",
-    primario: "bg-acento text-white hover:opacity-90",
+    primario: "btn-primario text-white",
     peligro: "border border-alerta/50 text-alerta-txt hover:bg-alerta/10",
     fantasma: "text-txt-2 hover:bg-card-2",
   }[tipo];
@@ -139,7 +139,7 @@ export function Boton({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center gap-1.5 rounded-lg ${pequeno ? "px-2.5 py-1 text-xs" : "px-3.5 py-2 text-sm"} font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${t} ${className}`}
+      className={`pulsable inline-flex items-center justify-center gap-1.5 rounded-lg ${pequeno ? "px-2.5 py-1 text-xs" : "px-3.5 py-2 text-sm"} font-medium disabled:opacity-50 disabled:cursor-not-allowed ${t} ${className}`}
     >
       {children}
     </button>
@@ -157,7 +157,7 @@ export function Campo({ etiqueta, children, ayuda, className = "" }: { etiqueta:
 }
 
 export const inputCls =
-  "w-full rounded-lg border border-borde bg-card px-3 py-2 text-sm text-txt placeholder:text-txt-3 focus:border-acento focus:outline-none";
+  "w-full rounded-lg border border-borde bg-card-2 px-3 py-2 text-sm text-txt placeholder:text-txt-3 transition-[border-color,box-shadow] duration-150 focus:border-acento focus:outline-none focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--acento)_22%,transparent)]";
 
 export function Modal({ abierto, cerrar, titulo, children, ancho = "max-w-2xl" }: { abierto: boolean; cerrar: () => void; titulo: string; children: ReactNode; ancho?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -173,10 +173,10 @@ export function Modal({ abierto, cerrar, titulo, children, ancho = "max-w-2xl" }
   }, [abierto, cerrar]);
   if (!abierto) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && cerrar()}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={titulo} className={`w-full ${ancho} max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-borde bg-card p-5 shadow-2xl`}>
+    <div className="fondo-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/55 backdrop-blur-sm p-0 sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && cerrar()}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={titulo} className={`ventana-modal panel w-full ${ancho} max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-borde p-5 shadow-2xl`}>
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h3 className="text-lg font-semibold">{titulo}</h3>
+          <h3 className="font-display text-lg font-semibold tracking-tight">{titulo}</h3>
           <button onClick={cerrar} className="rounded-lg px-2 py-1 text-txt-3 hover:bg-card-2" aria-label="Cerrar">
             ✕
           </button>
@@ -190,20 +190,20 @@ export function Modal({ abierto, cerrar, titulo, children, ancho = "max-w-2xl" }
 export function Cargando({ texto = "Cargando datos de tus hojas…" }: { texto?: string }) {
   return (
     <div className="grid gap-3">
-      <div className="text-sm text-txt-3">{texto}</div>
+      <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-txt-3"><span className="h-1.5 w-1.5 rounded-full bg-neon animate-pulse" aria-hidden />{texto}</div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-24 rounded-2xl border border-borde bg-card animate-pulse" />
+          <div key={i} className="esqueleto h-24 rounded-2xl border border-borde" />
         ))}
       </div>
-      <div className="h-72 rounded-2xl border border-borde bg-card animate-pulse" />
+      <div className="esqueleto h-72 rounded-2xl border border-borde" />
     </div>
   );
 }
 
 export function FalloCarga({ error, reintentar }: { error: string; reintentar: () => void }) {
   return (
-    <div className="rounded-2xl border border-alerta/40 bg-card p-5">
+    <div className="panel aparecer rounded-2xl border border-alerta/40 p-5">
       <p className="font-medium text-alerta-txt">No he podido leer los datos</p>
       <p className="mt-1 text-sm text-txt-2">{error}</p>
       <Boton className="mt-3" onClick={reintentar}>
@@ -223,7 +223,7 @@ export function Chip({ children, activo, onClick }: { children: ReactNode; activ
       type="button"
       onClick={onClick}
       aria-pressed={activo}
-      className={`rounded-full border px-3 py-1 text-xs font-medium transition whitespace-nowrap ${activo ? "border-acento bg-acento-suave text-acento" : "border-borde text-txt-2 hover:bg-card-2"}`}
+      className={`pulsable rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap ${activo ? "border-acento/60 bg-acento-suave text-acento shadow-[0_0_12px_-4px_var(--acento)]" : "border-borde text-txt-2 hover:bg-card-2"}`}
     >
       {children}
     </button>
@@ -250,7 +250,7 @@ export function Estado({ nivel }: { nivel: keyof typeof NIVEL }) {
 export function TarjetaHallazgo({ nivel, titulo, detalle, pie }: { nivel: keyof typeof NIVEL; titulo: string; detalle: string; pie?: ReactNode }) {
   const n = NIVEL[nivel];
   return (
-    <div className={`relative overflow-hidden rounded-xl border ${n.cls} bg-card p-3.5 pl-4`}>
+    <div className={`panel aparecer relative overflow-hidden rounded-xl border ${n.cls} p-3.5 pl-4`}>
       <span className={`absolute left-0 top-0 h-full w-1 ${n.barra}`} aria-hidden />
       <Estado nivel={nivel} />
       <div className="mt-1 text-sm font-semibold text-txt">{titulo}</div>
@@ -274,7 +274,7 @@ export function Titulo({ titulo, sub, extra }: { titulo: string; sub?: ReactNode
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight">{titulo}</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-[28px]">{titulo}</h1>
         {sub && <p className="mt-1 text-sm text-txt-3">{sub}</p>}
       </div>
       {extra && <div className="flex flex-wrap items-center gap-2">{extra}</div>}

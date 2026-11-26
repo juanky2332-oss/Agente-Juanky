@@ -2,21 +2,33 @@
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tema «centro de mando»: azul noche, cristal y brillo cian/violeta.
+   Todos los colores salen de aquí: las pantallas solo usan los tokens.
+   ───────────────────────────────────────────────────────────────────────────── */
 :root {
   color-scheme: light;
-  --bg: #f4f4f2;
+  --bg: #eef1f7;
   --card: #ffffff;
-  --card-2: #f8f8f6;
-  --borde: #e6e5e0;
-  --txt: #0b0b0b;
-  --txt-2: #52514e;
-  --txt-3: #7d7c76;
-  --acento: #2a78d6;
-  --acento-suave: #e6effb;
-  --grid: #ecebe7;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
-  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
-  --otros: #a9a8a2;
+  --card-2: #f4f6fb;
+  --borde: #dde3ee;
+  --txt: #0a0f1c;
+  --txt-2: #46506a;
+  --txt-3: #667089;
+  --acento: #2f5fe0;
+  --acento-suave: #e6ecff;
+  --neon: #0891b2;
+  --violeta: #7c3aed;
+  --grid: #e5e9f2;
+  --brillo: rgba(47, 95, 224, 0.14);
+  --brillo-2: rgba(124, 58, 237, 0.1);
+  --rejilla: rgba(10, 15, 28, 0.04);
+  --cristal: rgba(255, 255, 255, 0.72);
+  --linea-luz: rgba(255, 255, 255, 0.9);
+  --sombra: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
+  --s1: #2f5fe0; --s2: #eb6834; --s3: #12a37a; --s4: #d99400;
+  --s5: #e0679a; --s6: #198a19; --s7: #6d4fd8; --s8: #e34948;
+  --otros: #a3abbd;
   --bien: #0ca30c; --aviso: #fab219; --serio: #ec835a; --alerta: #d03b3b;
   --bien-txt: #006300; --alerta-txt: #b42525; --aviso-txt: #8a5a00;
 }
@@ -24,23 +36,29 @@
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --bg: #111110; --card: #1a1a19; --card-2: #212120; --borde: #2e2e2c;
-    --txt: #ffffff; --txt-2: #c3c2b7; --txt-3: #8d8c84;
-    --acento: #3987e5; --acento-suave: #1b2a3d; --grid: #2a2a28;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
-    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
-    --otros: #5f5e59;
+    --bg: #060911; --card: #0c111d; --card-2: #121a2b; --borde: #1d2740;
+    --txt: #e9eef8; --txt-2: #aab5ca; --txt-3: #7a86a0;
+    --acento: #6b97ff; --acento-suave: #142140; --neon: #22d3ee; --violeta: #a78bfa; --grid: #172036;
+    --brillo: rgba(91, 140, 255, 0.16); --brillo-2: rgba(139, 92, 246, 0.12); --rejilla: rgba(148, 170, 220, 0.045);
+    --cristal: rgba(12, 17, 29, 0.72); --linea-luz: rgba(255, 255, 255, 0.05);
+    --sombra: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.7);
+    --s1: #6b97ff; --s2: #ff7a45; --s3: #2dd4a0; --s4: #f5b83d;
+    --s5: #f472b6; --s6: #22c55e; --s7: #a78bfa; --s8: #f87171;
+    --otros: #47516b;
     --bien-txt: #4fd34f; --alerta-txt: #ff8a8a; --aviso-txt: #fac858;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111110; --card: #1a1a19; --card-2: #212120; --borde: #2e2e2c;
-  --txt: #ffffff; --txt-2: #c3c2b7; --txt-3: #8d8c84;
-  --acento: #3987e5; --acento-suave: #1b2a3d; --grid: #2a2a28;
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
-  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
-  --otros: #5f5e59;
+  --bg: #060911; --card: #0c111d; --card-2: #121a2b; --borde: #1d2740;
+  --txt: #e9eef8; --txt-2: #aab5ca; --txt-3: #7a86a0;
+  --acento: #6b97ff; --acento-suave: #142140; --neon: #22d3ee; --violeta: #a78bfa; --grid: #172036;
+  --brillo: rgba(91, 140, 255, 0.16); --brillo-2: rgba(139, 92, 246, 0.12); --rejilla: rgba(148, 170, 220, 0.045);
+  --cristal: rgba(12, 17, 29, 0.72); --linea-luz: rgba(255, 255, 255, 0.05);
+  --sombra: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.7);
+  --s1: #6b97ff; --s2: #ff7a45; --s3: #2dd4a0; --s4: #f5b83d;
+  --s5: #f472b6; --s6: #22c55e; --s7: #a78bfa; --s8: #f87171;
+  --otros: #47516b;
   --bien-txt: #4fd34f; --alerta-txt: #ff8a8a; --aviso-txt: #fac858;
 }
 
@@ -54,6 +72,8 @@
   --color-txt-3: var(--txt-3);
   --color-acento: var(--acento);
   --color-acento-suave: var(--acento-suave);
+  --color-neon: var(--neon);
+  --color-violeta: var(--violeta);
   --color-bien: var(--bien);
   --color-aviso: var(--aviso);
   --color-serio: var(--serio);
@@ -62,12 +82,39 @@
   --color-alerta-txt: var(--alerta-txt);
   --color-aviso-txt: var(--aviso-txt);
   --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--fuente-display), var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--fuente-mono), ui-monospace, monospace;
+}
+
+/* Curvas y tiempos de todo el movimiento de la app (un solo sitio). */
+:root {
+  --curva-salida: cubic-bezier(0.22, 1, 0.36, 1); /* entra rápido, frena suave */
+  --curva-entrada: cubic-bezier(0.55, 0, 1, 0.45);
+  --t-rapido: 140ms;
+  --t-medio: 240ms;
+  --t-lento: 380ms;
 }
 
 html, body { background: var(--bg); color: var(--txt); }
 body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+/* Fondo: dos halos de luz y una rejilla técnica que se desvanece. Fijo, no se mueve al hacer scroll. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 45% at 12% -5%, var(--brillo), transparent 70%),
+    radial-gradient(40% 40% at 100% 0%, var(--brillo-2), transparent 70%),
+    linear-gradient(var(--rejilla) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, var(--rejilla) 1px, transparent 1px) 0 0 / 44px 44px;
+  mask-image: linear-gradient(to bottom, #000 0%, #000 40%, transparent 95%);
+}
+
 .tabular { font-variant-numeric: tabular-nums; }
-::selection { background: var(--acento-suave); }
+::selection { background: color-mix(in srgb, var(--acento) 30%, transparent); }
 input, select, textarea { font: inherit; }
 .recharts-wrapper .recharts-surface { overflow: visible; }
 .recharts-tooltip-wrapper { outline: none; }
@@ -77,3 +124,100 @@ input, select, textarea { font: inherit; }
 .prosa-tg b { font-weight: 600; }
 .prosa-tg a { color: var(--acento); text-decoration: underline; }
 .prosa-tg code { font-size: .85em; background: var(--card-2); padding: 0 4px; border-radius: 4px; }
+
+/* ───────────── superficies ───────────── */
+.panel {
+  background: linear-gradient(180deg, var(--linea-luz), transparent 40%) , var(--card);
+  box-shadow: var(--sombra);
+}
+.cristal {
+  background: var(--cristal);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+/* Hilo de luz arriba de las cifras clave. */
+.hilo-luz { position: relative; }
+.hilo-luz::after {
+  content: "";
+  position: absolute;
+  inset: 0 16% auto 16%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--neon), transparent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.btn-primario {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--acento) 92%, #000) 0%, var(--violeta) 130%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 22px -10px color-mix(in srgb, var(--acento) 80%, transparent);
+}
+.btn-primario:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset, 0 10px 28px -10px color-mix(in srgb, var(--acento) 95%, transparent); }
+.logo-j {
+  background: linear-gradient(135deg, var(--acento), var(--violeta));
+  box-shadow: 0 0 18px -2px color-mix(in srgb, var(--acento) 70%, transparent);
+}
+.punto-vivo { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bien) 60%, transparent); animation: latido 2.4s var(--curva-salida) infinite; }
+@keyframes latido { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bien) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+
+/* ───────────── movimiento con sentido ─────────────
+   - Lo que llega (datos cargados, tarjetas): sube 6 px y aparece. Las tarjetas de una
+     misma rejilla llegan escalonadas para que el ojo las lea en orden.
+   - Lo que sale: más rápido que lo que entra, para no competir. */
+@keyframes aparecer { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes aparecer-escala { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes subir-hoja { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fundido { from { opacity: 0; } to { opacity: 1; } }
+@keyframes entrar-lado { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes brillo-carga { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+
+.aparecer { animation: aparecer var(--t-medio) var(--curva-salida) both; }
+:where(.grid, .flex) > .aparecer:nth-child(2) { animation-delay: 35ms; }
+:where(.grid, .flex) > .aparecer:nth-child(3) { animation-delay: 70ms; }
+:where(.grid, .flex) > .aparecer:nth-child(4) { animation-delay: 105ms; }
+:where(.grid, .flex) > .aparecer:nth-child(5) { animation-delay: 140ms; }
+:where(.grid, .flex) > .aparecer:nth-child(n + 6) { animation-delay: 170ms; }
+.fondo-modal { animation: fundido var(--t-rapido) ease-out both; }
+.ventana-modal { animation: aparecer-escala var(--t-medio) var(--curva-salida) both; }
+@media (max-width: 639px) { .ventana-modal { animation: subir-hoja var(--t-lento) var(--curva-salida) both; } }
+.aviso-entra { animation: entrar-lado var(--t-medio) var(--curva-salida) both; }
+.esqueleto {
+  background: linear-gradient(90deg, var(--card) 0%, var(--card-2) 50%, var(--card) 100%) 0 0 / 200% 100%;
+  animation: brillo-carga 1.6s linear infinite;
+}
+.pulsable { transition: transform var(--t-rapido) var(--curva-salida), background-color var(--t-rapido), border-color var(--t-rapido), color var(--t-rapido), filter var(--t-rapido), box-shadow var(--t-rapido); }
+.pulsable:active:not(:disabled) { transform: scale(0.97); }
+
+/* ───────────── cambio de sección (View Transitions) ─────────────
+   La dirección dice dónde estás: en el menú lateral (vertical), ir a una sección de más
+   abajo hace que el contenido suba desde abajo; volver a una de arriba, que baje. En el
+   móvil la barra es horizontal, así que el contenido entra por el lado al que vas.
+   El menú y la cabecera no se mueven: son el ancla. La pastilla de la sección activa
+   viaja de un botón al otro. */
+::view-transition { pointer-events: none; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition-group(menu-lateral), ::view-transition-group(barra-movil) { animation: none; z-index: 50; }
+::view-transition-old(menu-lateral), ::view-transition-old(barra-movil) { display: none; }
+::view-transition-new(menu-lateral), ::view-transition-new(barra-movil) { animation: none; }
+::view-transition-group(cabecera-movil) { z-index: 50; }
+::view-transition-group(nav-activo), ::view-transition-group(nav-activo-movil) {
+  animation-duration: var(--t-lento);
+  animation-timing-function: var(--curva-salida);
+}
+::view-transition-old(.seccion-adelante), ::view-transition-old(.seccion-atras) {
+  animation: var(--t-rapido) var(--curva-entrada) both salir-seccion;
+}
+::view-transition-new(.seccion-adelante) { --desde-y: 18px; --desde-x: 0px; animation: var(--t-lento) var(--curva-salida) 60ms both entrar-seccion; }
+::view-transition-new(.seccion-atras) { --desde-y: -18px; --desde-x: 0px; animation: var(--t-lento) var(--curva-salida) 60ms both entrar-seccion; }
+@media (max-width: 1023px) {
+  ::view-transition-new(.seccion-adelante) { --desde-y: 0px; --desde-x: 28px; }
+  ::view-transition-new(.seccion-atras) { --desde-y: 0px; --desde-x: -28px; }
+}
+@keyframes salir-seccion { to { opacity: 0; filter: blur(2px); } }
+@keyframes entrar-seccion {
+  from { opacity: 0; transform: translate(var(--desde-x), var(--desde-y)); filter: blur(3px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  ::view-transition-old(*), ::view-transition-new(*), ::view-transition-group(*) { animation-duration: 0s !important; animation-delay: 0s !important; }
+}

@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const display = Space_Grotesk({ subsets: ["latin"], variable: "--fuente-display", weight: ["500", "600", "700"] });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--fuente-mono", weight: ["400", "500"] });
 
 export const metadata: Metadata = {
   title: "Juanky · Panel",
@@ -14,8 +16,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f4f4f2" },
-    { media: "(prefers-color-scheme: dark)", color: "#111110" },
+    { media: "(prefers-color-scheme: light)", color: "#eef1f7" },
+    { media: "(prefers-color-scheme: dark)", color: "#060911" },
   ],
 };
 
@@ -24,7 +26,7 @@ const temaInicial = `try{var t=localStorage.getItem('tema');if(t==='light'||t===
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="es" className={inter.variable} suppressHydrationWarning>
+    <html lang="es" className={`${inter.variable} ${display.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: temaInicial }} />
       </head>
