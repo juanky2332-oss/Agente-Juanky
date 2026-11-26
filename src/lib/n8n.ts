@@ -1,4 +1,5 @@
 import "server-only";
+import { olvidarLecturas } from "./lecturas";
 
 // Todo pasa por el workflow "API APP JUANKY (dashboard)" de n8n: allí viven las
 // credenciales de Google, OpenAI y Telegram. La app nunca las ve.
@@ -15,6 +16,17 @@ export class ErrorN8n extends Error {
 
 export async function n8n<T = unknown>(body: Record<string, unknown>, timeoutMs = 60000): Promise<T> {
   if (!KEY) throw new ErrorN8n("Falta N8N_APP_KEY en las variables de entorno");
+  // Todo lo que no sea leer hojas puede escribir: lo leído en esta petición deja de valer (antes y después).
+  const lectura = body.op === "sheets" && String(body.method || "GET").toUpperCase() === "GET";
+  if (!lectura) olvidarLecturas();
+  try {
+    return await llamarN8n<T>(body, timeoutMs);
+  } finally {
+    if (!lectura) olvidarLecturas();
+  }
+}
+
+async function llamarN8n<T>(body: Record<string, unknown>, timeoutMs: number): Promise<T> {
   const r = await fetch(BASE + "/webhook/app-juanky-api", {
     method: "POST",
     headers: { "content-type": "application/json", "x-app-key": KEY },
@@ -39,6 +51,15 @@ export async function n8n<T = unknown>(body: Record<string, unknown>, timeoutMs 
 
 /** Webhooks de los workflows que ya usa el bot (mismo motor, mismas reglas). */
 export async function webhook<T = unknown>(path: string, body: unknown, timeoutMs = 90000): Promise<T> {
+  olvidarLecturas(); // un workflow puede escribir en las hojas
+  try {
+    return await llamarWebhook<T>(path, body, timeoutMs);
+  } finally {
+    olvidarLecturas();
+  }
+}
+
+async function llamarWebhook<T>(path: string, body: unknown, timeoutMs: number): Promise<T> {
   const r = await fetch(BASE + "/webhook/" + path, {
     method: "POST",
     headers: { "content-type": "application/json", "x-app-key": KEY },

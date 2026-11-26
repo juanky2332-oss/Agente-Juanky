@@ -1,6 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { ErrorN8n } from "./n8n";
+import { conLecturasCompartidas } from "./lecturas";
 import { accesoPermitido, credencialesDe } from "./acceso";
 
 /**
@@ -15,7 +16,8 @@ export function manejar<A extends unknown[]>(fn: (...a: A) => Promise<unknown>) 
       const req = a.find((x): x is Request => x instanceof Request);
       // Sin Request no hay credenciales que mirar: se cierra.
       if (!req || !(await accesoPermitido(credencialesDe(req)))) return NextResponse.json({ error: "Sesión caducada. Vuelve a entrar." }, { status: 401 });
-      const r = await fn(...a);
+      // Cada petición comparte sus lecturas de hojas (y las olvida al escribir): ver lib/lecturas.ts.
+      const r = await conLecturasCompartidas(() => fn(...a));
       return r instanceof Response ? r : NextResponse.json(r);
     } catch (e) {
       const status = e instanceof ErrorN8n ? e.status : 500;

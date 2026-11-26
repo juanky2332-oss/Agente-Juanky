@@ -1,5 +1,6 @@
 import "server-only";
 import { n8n, ErrorN8n } from "./n8n";
+import { recordadas, recordar, generacionActual, enCamino, apuntarEnCamino } from "./lecturas";
 
 // Acceso a las pestañas del documento del bot (1L7cua...). Todas las escrituras
 // localizan cada campo por el NOMBRE de su columna (patrón GUIA GASTRO): así añadir
@@ -64,6 +65,24 @@ export function rangosLlenos(rangos: string[], valores: string[][][]): { i: numb
 }
 
 export async function leerRangos(rangos: string[], render: "FORMATTED_VALUE" | "FORMULA" | "UNFORMATTED_VALUE" = "FORMATTED_VALUE") {
+  // Lo ya leído en esta misma petición (sin escrituras entre medias) no se vuelve a pedir.
+  const ya = recordadas(render, rangos);
+  const pedidas = enCamino(render, rangos);
+  const faltan = rangos.filter((_, i) => !ya[i] && !pedidas[i]);
+  if (!faltan.length && ya.every(Boolean)) return ya as string[][][];
+  const gen = generacionActual();
+  let nuevos: Promise<string[][][]> = Promise.resolve([]);
+  if (faltan.length) {
+    nuevos = leerSinMemoria(faltan, render);
+    apuntarEnCamino(render, faltan, nuevos);
+  }
+  const listos = await nuevos;
+  recordar(render, faltan, listos, gen);
+  let k = 0;
+  return Promise.all(rangos.map((_, i) => ya[i] ?? pedidas[i] ?? listos[k++]));
+}
+
+async function leerSinMemoria(rangos: string[], render: string) {
   const valores = await pedirRangos(rangos, render);
   // Una pestaña que ha crecido más que el rango pedido se vuelve a leer más grande: nunca se pierden filas.
   let pedidos = [...rangos];

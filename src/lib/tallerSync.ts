@@ -157,6 +157,11 @@ export async function sincronizarTaller(forzar = false): Promise<void> {
 
 async function sincronizarHojas() {
   const lineas: string[] = [];
+  // Lo que leerá la sincronización de «Trabajos flownexion», pedido YA, a la vez que la del taller.
+  // Si la del taller escribe algo, estas lecturas se descartan solas y se vuelven a pedir (lib/lecturas.ts).
+  // Cada pestaña por separado: si una no existe, no arrastra a las demás.
+  for (const [rango, modo] of [["'Trabajos flownexion'!A1:Z60", "UNFORMATTED_VALUE"], ["'Sync hojas'!A1:C200", "FORMATTED_VALUE"], ["'Programados'!A1:Z300", "FORMATTED_VALUE"]] as const)
+    leerRangos([rango], modo).catch(() => {});
   // Cada hoja por separado: si una falla, la otra sigue funcionando.
   for (const [nombre, fn] of [[HOJA, sincronizar], ["Trabajos flownexion", sincronizarFlow]] as const) {
     try {
