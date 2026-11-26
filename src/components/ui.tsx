@@ -7,11 +7,14 @@ export function useApi<T>(url: string | null) {
   const [error, setError] = useState<string>("");
   const [cargando, setCargando] = useState(true);
   const [version, setVersion] = useState(0);
+  // Recarga «en silencio» (al volver a la pestaña): no enseña la carga y, si falla, deja lo que había.
+  const silenciosa = useRef(false);
   useEffect(() => {
     if (!url) return;
     let vivo = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- marca de carga al cambiar la URL o recargar
-    setCargando(true);
+    const callada = silenciosa.current;
+    silenciosa.current = false;
+    if (!callada) setCargando(true);
     // "Failed to fetch" = corte de red o el servidor arrancando (p.ej. justo tras un despliegue):
     // se reintenta solo dos veces antes de enseñar el error.
     const pedir = async (intento: number): Promise<T> => {
@@ -33,13 +36,29 @@ export function useApi<T>(url: string | null) {
     };
     pedir(0)
       .then((j) => vivo && (setDatos(j), setError("")))
-      .catch((e) => vivo && setError(e.message))
+      .catch((e) => vivo && !callada && setError(e.message))
       .finally(() => vivo && setCargando(false));
     return () => {
       vivo = false;
     };
   }, [url, version]);
   const recargar = useCallback(() => setVersion((v) => v + 1), []);
+
+  // Lo que apuntas por Telegram aparece al volver a la app, sin recargar a mano.
+  // Solo si estuviste fuera más de 30 s y no hay ninguna ventana (formulario) abierta.
+  useEffect(() => {
+    if (!url) return;
+    let oculta = 0;
+    const cambio = () => {
+      if (document.visibilityState === "hidden") return void (oculta = Date.now());
+      if (!oculta || Date.now() - oculta < 30000 || document.querySelector('[role="dialog"]')) return;
+      oculta = 0;
+      silenciosa.current = true;
+      setVersion((v) => v + 1);
+    };
+    document.addEventListener("visibilitychange", cambio);
+    return () => document.removeEventListener("visibilitychange", cambio);
+  }, [url]);
   return { datos, error, cargando, recargar, setDatos };
 }
 

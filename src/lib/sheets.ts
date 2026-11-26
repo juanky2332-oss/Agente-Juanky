@@ -38,12 +38,46 @@ const escrito = (nombre: string) => {
   ultimaEscritura[nombre] = Date.now();
 };
 
-export async function leerRangos(rangos: string[], render: "FORMATTED_VALUE" | "FORMULA" | "UNFORMATTED_VALUE" = "FORMATTED_VALUE") {
+async function pedirRangos(rangos: string[], render: string) {
   const path =
     "/values:batchGet?valueRenderOption=" + render + "&" +
     rangos.map((r) => "ranges=" + encodeURIComponent(r)).join("&");
   const d = await n8n<{ valueRanges: { range: string; values?: string[][] }[] }>({ op: "sheets", method: "GET", path });
+  if (d.valueRanges?.length !== rangos.length) throw new ErrorN8n("Google no ha devuelto todas las pestañas pedidas", 502);
   return d.valueRanges.map((v) => v.values || []);
+}
+
+/**
+ * Rangos que han vuelto LLENOS hasta su última fila (p. ej. A1:Z3000 con 3.000 filas): puede que
+ * haya más debajo. Devuelve el mismo rango con 4 veces más filas. Las lecturas cortas (cabeceras,
+ * menos de 50 filas) no cuentan.
+ */
+export function rangosLlenos(rangos: string[], valores: string[][][]): { i: number; rango: string }[] {
+  const out: { i: number; rango: string }[] = [];
+  rangos.forEach((r, i) => {
+    const m = r.match(/^(.*![A-Z]+\d+:[A-Z]+)(\d+)$/);
+    if (!m) return;
+    const fin = +m[2];
+    if (fin >= 50 && (valores[i]?.length || 0) >= fin && fin < 200000) out.push({ i, rango: m[1] + Math.min(fin * 4, 200000) });
+  });
+  return out;
+}
+
+export async function leerRangos(rangos: string[], render: "FORMATTED_VALUE" | "FORMULA" | "UNFORMATTED_VALUE" = "FORMATTED_VALUE") {
+  const valores = await pedirRangos(rangos, render);
+  // Una pestaña que ha crecido más que el rango pedido se vuelve a leer más grande: nunca se pierden filas.
+  let pedidos = [...rangos];
+  for (let vuelta = 0; vuelta < 3; vuelta++) {
+    const llenos = rangosLlenos(pedidos, valores);
+    if (!llenos.length) break;
+    const otra = await pedirRangos(llenos.map((x) => x.rango), render);
+    pedidos = [...pedidos];
+    llenos.forEach((x, k) => {
+      valores[x.i] = otra[k];
+      pedidos[x.i] = x.rango;
+    });
+  }
+  return valores;
 }
 
 /** Lee una pestaña entera. `buscarCabecera` escanea las 12 primeras filas (Trabajos no la tiene en la 1). */
